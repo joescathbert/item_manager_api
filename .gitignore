@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.egg
+
+# Django
+db.sqlite3
+*.log
+*.pot
+*.pyc
+local_settings.py
+
+# Migrations (keep the .py files, ignore caches)
+*/migrations/__pycache__/
+*/migrations/*.pyc
+
+# Environment & secrets
+.env
+*.env
+.env.*
+
+# Media & static (generated files)
+media/
+staticfiles/
+static/
+
+# IDE & editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

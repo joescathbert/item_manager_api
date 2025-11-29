@@ -1,0 +1,20 @@
+services:
+  web:
+    build: .
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    expose:
+      - "8000"
+
+  nginx:
+    image: nginx:latest
+    ports:
+      - "8000:80"
+    volumes:
+      - ./nginx:/etc/nginx/conf.d
+      - ./staticfiles:/app/staticfiles
+      - ./media:/app/media
+    depends_on:
+      - web

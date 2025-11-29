@@ -1,0 +1,7 @@
+django
+djangorestframework
+drf-yasg
+psycopg2-binary
+django-extensions
+gunicorn
+django-cors-headers
