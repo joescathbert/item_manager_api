@@ -42,10 +42,6 @@ SWAGGER_SETTINGS = {
     "DEFAULT_API_URL": f"http://{DJANGO_HOST}:{DJANGO_PORT}",
 }
 
-REST_FRAMEWORK = {
-    "DEFAULT_FILTER_BACKENDS": ["rest_framework.filters.OrderingFilter"],
-}
-
 # Application definition
 
 INSTALLED_APPS = [

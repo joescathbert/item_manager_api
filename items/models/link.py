@@ -5,6 +5,7 @@ from items.models.item import Item
 class Link(models.Model):
     item = models.OneToOneField(Item, on_delete=models.CASCADE, related_name="link")
     url = models.URLField()
+    media_url = models.URLField(blank=True, null=True)
 
     def clean(self):
         # Ensure item type matches

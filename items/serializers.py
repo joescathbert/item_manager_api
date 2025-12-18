@@ -6,61 +6,8 @@ from .models.tag import Tag
 from .models.link import Link
 from .models.file_group import FileGroup
 from .models.file import File
-
-def refine_twitter_url(raw_url: str) -> str:
-    """
-    Normalize Twitter/X URLs to https://twitter.com/<username>/status/<id>.
-    Raises ValueError if format is invalid.
-    """
-    parsed = urlparse(raw_url.strip())
-
-    path_parts: List[str] = parsed.path.strip("/").split("/")
-    if len(path_parts) < 3 or path_parts[1] != "status":
-        raise ValueError("URL must be in the format /<username>/status/<id>")
-
-    user_name: str = path_parts[0]
-    status_id: str = path_parts[2]
-
-    if not status_id.isdigit():
-        raise ValueError("Status ID must be numeric.")
-
-    return f"https://twitter.com/{user_name}/status/{status_id}"
-
-def refine_reddit_url(raw_url: str) -> str:
-    """
-    Normalize Reddit URLs to https://www.reddit.com/r/<subreddit>/comments/<post_id>.
-    Raises ValueError if format is invalid.
-    """
-    parsed = urlparse(raw_url.strip())
-
-    path_parts: List[str] = parsed.path.strip("/").split("/")
-    # Expected: ["r", "<subreddit>", "comments", "<post_id>", ...]
-    if len(path_parts) < 4 or path_parts[0] != "r" or path_parts[2] != "comments":
-        raise ValueError("URL must be in the format /r/<subreddit>/comments/<post_id>")
-
-    subreddit: str = path_parts[1]
-    post_id: str = path_parts[3]
-
-    # Reddit post IDs are alphanumeric (not purely digits like Twitter IDs)
-    if not post_id.isalnum():
-        raise ValueError("Post ID must be alphanumeric.")
-
-    return f"https://www.reddit.com/r/{subreddit}/comments/{post_id}"
-
-def refine_url(raw_url: str) -> str:
-    """
-    Dispatches to the correct refiner based on domain.
-    """
-    parsed = urlparse(raw_url.strip())
-    domain = parsed.netloc.lower()
-
-    if domain in ["x.com", "twitter.com"]:
-        return refine_twitter_url(raw_url)
-    elif domain in ["www.reddit.com", "reddit.com"]:
-        return refine_reddit_url(raw_url)
-    else:
-        raise ValueError("Unsupported domain. Only Twitter/X and Reddit are allowed.")
-
+from utils.url_refiner import refine_url
+from utils.reddit_api import get_reddit_link_details
 
 class TagSerializer(serializers.ModelSerializer):
     class Meta:
@@ -138,11 +85,13 @@ class ItemSerializer(serializers.ModelSerializer):
 
 class LinkSerializer(serializers.ModelSerializer):
     item = serializers.PrimaryKeyRelatedField(queryset=Item.objects.all())
-    domain_name = serializers.SerializerMethodField(read_only=True)
+    media_url = serializers.CharField(read_only=True)
+    url_domain = serializers.SerializerMethodField(read_only=True)
+    media_url_domain = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Link
-        fields: List[str] = ["id", "item", "url", "domain_name"]
+        fields: List[str] = ["id", "item", "url", "url_domain", "media_url", "media_url_domain"]
 
     def validate_item(self, value: Item) -> Item:
         if value.type != "link":
@@ -151,15 +100,43 @@ class LinkSerializer(serializers.ModelSerializer):
 
     def validate_url(self, value: str) -> str:
         try:
-            return refine_url(value)
+            refined = refine_url(value)
+
+            # If it's a reddit URL, fetch media details
+            parsed = urlparse(refined)
+            if parsed.netloc.lower() in ["www.reddit.com", "reddit.com"]:
+                details = get_reddit_link_details(refined)
+                if not details or not details.get("url"):
+                    raise serializers.ValidationError("Could not extract media URL from Reddit link.")
+                # stash media_url into serializer context so we can save it later
+                self._media_url = details["url"]
+
+            return refined
         except ValueError as e:
             raise serializers.ValidationError(str(e))
 
-    def get_domain_name(self, obj: Link) -> Optional[str]:
+    def create(self, validated_data: dict) -> Link:
+        if hasattr(self, "_media_url"):
+            validated_data["media_url"] = self._media_url
+        return super().create(validated_data)
+
+    def update(self, instance: Link, validated_data: dict) -> Link:
+        if hasattr(self, "_media_url"):
+            validated_data["media_url"] = self._media_url
+        return super().update(instance, validated_data)
+
+    def get_url_domain(self, obj: Link) -> Optional[str]:
         if obj.url:
             parsed = urlparse(obj.url)
             return parsed.netloc.lower()
         return None
+
+    def get_media_url_domain(self, obj: Link) -> Optional[str]:
+        if obj.media_url:
+            parsed = urlparse(obj.media_url)
+            return parsed.netloc.lower()
+        return None
+
 
 class FileSerializer(serializers.ModelSerializer):
     class Meta:
