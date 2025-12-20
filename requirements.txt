@@ -6,3 +6,4 @@ django-extensions
 gunicorn
 django-cors-headers
 requests
+gallery-dl

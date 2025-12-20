@@ -1,5 +1,7 @@
 import requests
 import re
+import subprocess
+from urllib.parse import urlparse
 
 # --- Configuration ---
 # Reddit requires a User-Agent header for API requests.
@@ -9,9 +11,7 @@ HEADERS = {
     'User-Agent': 'LinkCollectorApp/1.0 (by /u/YourRedditUsername)'
 }
 
-# --- Core Function ---
-
-def get_reddit_link_details(reddit_url):
+def get_media_url_with_reddit_api(reddit_url):
     """
     Fetches the JSON data for a Reddit post and extracts the direct URL,
     with a fallback for NSFW content which sometimes uses the 'preview' field.
@@ -50,7 +50,7 @@ def get_reddit_link_details(reddit_url):
                 direct_url = preview_images['variants']['mp4']['source']['url']
                 domain = 'v.redd.it (Preview)'
                 print("✅ Detected as Preview Video (NSFW/Secure Fallback)")
-                
+
             # If no MP4 variant, check for the gif source (sometimes used for short videos)
             elif preview_images.get('variants', {}).get('gif'):
                 direct_url = preview_images['variants']['gif']['source']['url']
@@ -82,13 +82,8 @@ def get_reddit_link_details(reddit_url):
             domain = 'www.reddit.com'
             print("⚠️ Detected as Text/Other/Unparseable Post Type")
 
-
         # --- Results ---
-        return {
-            'original_url': reddit_url,
-            'url': direct_url,
-            'domain_name': domain
-        }
+        return direct_url
 
     except requests.exceptions.HTTPError as e:
         print(f"❌ HTTP Error fetching data: {e}")
@@ -98,3 +93,39 @@ def get_reddit_link_details(reddit_url):
         print(f"❌ An unexpected error occurred: {e}")
 
     return None
+
+def get_media_url_with_gallery_dl(url: str) -> str:
+    cmd = ['gallery-dl', '--get-url', url]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        media_url = result.stdout.strip()
+        parsed = urlparse(url)
+        if parsed.netloc.lower() in ["www.redgifs.com", "redgifs.com"]:
+            orig_media_url, mobile_media_url = media_url.split('\n|')
+            media_url = mobile_media_url.strip()
+        elif parsed.netloc.lower() in ["www.reddit.com", "reddit.com"]:
+            media_url = media_url.split('ytdl:')[-1].strip()
+            pass
+        return media_url
+    except subprocess.CalledProcessError as e:
+        print(f"Error using gallery-dl: {e.stderr}")
+        return None
+
+def get_reddit_link_details(reddit_url: str):
+    reddit_media_url = get_media_url_with_gallery_dl(reddit_url)
+    result = {
+        "original_url": reddit_url,
+        "url": ""
+    }
+    if reddit_media_url:
+        parsed = urlparse(reddit_media_url)
+        if parsed.netloc.lower() in ["www.redgifs.com", "redgifs.com"]:
+            redgifs_media_url = get_media_url_with_gallery_dl(reddit_media_url)
+            if redgifs_media_url:
+                result["url"] = redgifs_media_url
+        elif parsed.netloc.lower() in ["v.redd.it"]:
+            print(reddit_media_url)
+            result["url"] = get_media_url_with_reddit_api(reddit_url)
+            # result["url"] = reddit_media_url + "/CMAF_720.mp4?source=fallback"
+
+    return result
