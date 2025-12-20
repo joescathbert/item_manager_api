@@ -62,6 +62,10 @@ def media_proxy_view(request):
         status=response.status_code
     )
 
+    # This signals to the browser that the stream supports seeking.
+    # NOTES: Without this, chromium browser doesn't allow seeking.
+    proxy_response['Accept-Ranges'] = 'bytes'
+
     if content_length:
         proxy_response['Content-Length'] = content_length
 
