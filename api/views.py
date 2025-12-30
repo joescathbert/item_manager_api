@@ -1,7 +1,7 @@
 import requests
 from django.http import StreamingHttpResponse, HttpResponse, HttpResponseBadRequest
 from django.views.decorators.http import require_http_methods
-from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+from urllib.parse import urlparse
 
 # Define the allowed media domains to prevent your proxy from being abused
 ALLOWED_MEDIA_DOMAINS = [
@@ -73,5 +73,5 @@ def media_proxy_view(request):
     proxy_response['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     proxy_response['Pragma'] = 'no-cache'
     proxy_response['Expires'] = '0'
-    
+
     return proxy_response

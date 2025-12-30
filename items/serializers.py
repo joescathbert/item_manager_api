@@ -14,6 +14,11 @@ class TagSerializer(serializers.ModelSerializer):
         model = Tag
         fields: List[str] = ["id", "name"]
 
+    def validate_name(self, value: str) -> str:
+        if "," in value:
+            raise serializers.ValidationError("Commas are not allowed in tag names.")
+        return value
+
 
 class ItemSerializer(serializers.ModelSerializer):
     tags = serializers.SlugRelatedField(
