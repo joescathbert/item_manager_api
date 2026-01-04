@@ -29,13 +29,13 @@ def refine_reddit_url(raw_url: str) -> str:
 
     path_parts: List[str] = parsed.path.strip("/").split("/")
     # Expected: ["r", "<subreddit>", "comments", "<post_id>", ...]
-    if len(path_parts) < 4 or path_parts[0] != "r" or path_parts[2] != "comments":
-        raise ValueError("URL must be in the format /r/<subreddit>/comments/<post_id>")
+    if len(path_parts) < 4 or path_parts[0] not in ["r", "user"] or path_parts[2] != "comments":
+        raise ValueError("URL must be in the format /r/<subreddit>/comments/<post_id> or /user/<username>/comments/<post_id>")
 
     subreddit: str = path_parts[1]
     post_id: str = path_parts[3]
 
-    # Reddit post IDs are alphanumeric (not purely digits like Twitter IDs)
+    # Reddit post IDs are alphanumeric
     if not post_id.isalnum():
         raise ValueError("Post ID must be alphanumeric.")
 

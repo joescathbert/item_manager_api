@@ -33,7 +33,7 @@ class ItemSerializer(serializers.ModelSerializer):
     )
 
     link_id = serializers.SerializerMethodField()
-    file_id = serializers.SerializerMethodField()
+    file_group_id = serializers.SerializerMethodField()
 
     # make owner optional
     owner = serializers.PrimaryKeyRelatedField(
@@ -45,7 +45,7 @@ class ItemSerializer(serializers.ModelSerializer):
         model = Item
         fields: List[str] = [
             "id", "owner", "name", "type", "date_of_origin",
-            "tags", "tag_names", "created_at", "link_id", "file_id"
+            "tags", "tag_names", "created_at", "link_id", "file_group_id"
         ]
 
     def create(self, validated_data: dict) -> Item:
@@ -76,16 +76,12 @@ class ItemSerializer(serializers.ModelSerializer):
         return instance
 
     def get_link_id(self, obj: Item) -> Optional[int]:
-        if obj.type == "link":
-            link: Optional[Link] = Link.objects.filter(item=obj).first()
-            return link.id if link else None
-        return None
+        link: Optional[Link] = Link.objects.filter(item=obj).first()
+        return link.id if link else None
 
-    def get_file_id(self, obj: Item) -> Optional[int]:
-        if obj.type == "file":
-            file_group: Optional[FileGroup] = FileGroup.objects.filter(item=obj).first()
-            return file_group.id if file_group else None
-        return None
+    def get_file_group_id(self, obj: Item) -> Optional[int]:
+        file_group: Optional[FileGroup] = FileGroup.objects.filter(item=obj).first()
+        return file_group.id if file_group else None
 
 
 class LinkSerializer(serializers.ModelSerializer):
@@ -98,10 +94,10 @@ class LinkSerializer(serializers.ModelSerializer):
         model = Link
         fields: List[str] = ["id", "item", "url", "url_domain", "media_url", "media_url_domain"]
 
-    def validate_item(self, value: Item) -> Item:
-        if value.type != "link":
-            raise serializers.ValidationError("Item type must be 'link' to attach a Link.")
-        return value
+    # def validate_item(self, value: Item) -> Item:
+    #     if value.type != "link":
+    #         raise serializers.ValidationError("Item type must be 'link' to attach a Link.")
+    #     return value
 
     def validate_url(self, value: str) -> str:
         try:
@@ -146,7 +142,7 @@ class LinkSerializer(serializers.ModelSerializer):
 class FileSerializer(serializers.ModelSerializer):
     class Meta:
         model = File
-        fields: List[str] = ["id", "file_name", "file_type", "file_origin"]
+        fields: List[str] = ["id", "file_name", "file_type", "file_origin", "file_url"]
 
     def validate_item(self, value: Item) -> Item:
         if value.type != "file_group":

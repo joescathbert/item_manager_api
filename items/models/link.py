@@ -7,14 +7,14 @@ class Link(models.Model):
     url = models.URLField(unique=True)
     media_url = models.URLField(blank=True, null=True)
 
-    def clean(self):
-        # Ensure item type matches
-        if self.item.type != "link":
-            raise ValidationError("Item type must be 'link' to attach a Link.")
+    # def clean(self):
+    #     # Ensure item type matches
+    #     if self.item.type != "link":
+    #         raise ValidationError("Item type must be 'link' to attach a Link.")
 
-    def save(self, *args, **kwargs):
-        self.clean()  # enforce validation before saving
-        super().save(*args, **kwargs)
+    # def save(self, *args, **kwargs):
+    #     self.clean()  # enforce validation before saving
+    #     super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Link: {self.url}"
