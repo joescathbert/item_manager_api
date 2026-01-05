@@ -1,5 +1,6 @@
 from typing import List
 from urllib.parse import urlparse
+from utils.domain_urls import REDDIT_DOMAINS, TWITTER_DOMAINS
 
 def refine_twitter_url(raw_url: str) -> str:
     """
@@ -48,9 +49,9 @@ def refine_url(raw_url: str) -> str:
     parsed = urlparse(raw_url.strip())
     domain = parsed.netloc.lower()
 
-    if domain in ["x.com", "twitter.com"]:
+    if domain in TWITTER_DOMAINS:
         return refine_twitter_url(raw_url)
-    elif domain in ["www.reddit.com", "reddit.com"]:
+    elif domain in REDDIT_DOMAINS:
         return refine_reddit_url(raw_url)
     else:
         raise ValueError("Unsupported domain. Only Twitter/X and Reddit are allowed.")

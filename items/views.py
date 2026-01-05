@@ -70,7 +70,7 @@ class ItemViewSet(viewsets.ModelViewSet):
     ordering = ["-created_at"]
 
     # def get_queryset(self): # ✅ Only return items with tag "content" by default
-    #     return Item.objects.filter(tags__name__in=["content-porn", "content-movie"]).distinct()
+    #     return Item.objects.filter(tags__name__in=["content-p", "content-m"]).distinct()
 
     def perform_create(self, serializer):
         # ✅ normal users always get themselves as owner

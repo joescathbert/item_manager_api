@@ -2,6 +2,7 @@ import requests
 import re
 import subprocess
 from urllib.parse import urlparse
+from utils.domain_urls import REDGIFS_DOMAINS, REDDIT_DOMAINS, TWITTER_DOMAINS, REDDIT_MEDIA_DOMAINS, TWITTER_MEDIA_DOMAINS
 
 # --- Configuration ---
 # Reddit requires a User-Agent header for API requests.
@@ -11,9 +12,8 @@ HEADERS = {
     'User-Agent': 'LinkCollectorApp/1.0 (by /u/YourRedditUsername)'
 }
 
-REDGIFS_DOMAINS = ["www.redgifs.com", "redgifs.com", "www.v3.redgifs.com", "v3.redgifs.com"]
 
-def get_media_url_with_reddit_api(reddit_url):
+def _get_media_url_with_reddit_api(reddit_url):
     """
     Fetches the JSON data for a Reddit post and extracts the direct URL,
     with a fallback for NSFW content which sometimes uses the 'preview' field.
@@ -96,17 +96,19 @@ def get_media_url_with_reddit_api(reddit_url):
 
     return None
 
-def get_media_url_with_gallery_dl(url: str) -> str:
+def _get_media_url_with_gallery_dl(url: str) -> str:
     cmd = ['gallery-dl', '--get-url', url]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         media_url = result.stdout.strip()
         parsed = urlparse(url)
-        if parsed.netloc.lower() in REDGIFS_DOMAINS:
+        domain = parsed.netloc.lower()
+        if domain in REDGIFS_DOMAINS:
             orig_media_url, mobile_media_url = media_url.split('\n|')
             media_url = mobile_media_url.strip()
-        elif parsed.netloc.lower() in ["www.reddit.com", "reddit.com"]:
+        elif domain in REDDIT_DOMAINS:
             media_url = media_url.split('ytdl:')[-1].strip()
+        elif domain in TWITTER_DOMAINS:
             pass
         return media_url
     except subprocess.CalledProcessError as e:
@@ -114,20 +116,34 @@ def get_media_url_with_gallery_dl(url: str) -> str:
         return None
 
 def get_reddit_link_details(reddit_url: str):
-    reddit_media_url = get_media_url_with_gallery_dl(reddit_url)
+    reddit_media_url = _get_media_url_with_gallery_dl(reddit_url)
     result = {
         "original_url": reddit_url,
         "url": ""
     }
     if reddit_media_url:
         parsed = urlparse(reddit_media_url)
-        if parsed.netloc.lower() in REDGIFS_DOMAINS:
-            redgifs_media_url = get_media_url_with_gallery_dl(reddit_media_url)
+        domain = parsed.netloc.lower()
+        if domain in REDGIFS_DOMAINS:
+            redgifs_media_url = _get_media_url_with_gallery_dl(reddit_media_url)
             if redgifs_media_url:
                 result["url"] = redgifs_media_url
-        elif parsed.netloc.lower() in ["v.redd.it"]:
-            print(reddit_media_url)
-            result["url"] = get_media_url_with_reddit_api(reddit_url)
+        elif domain in REDDIT_MEDIA_DOMAINS:
+            result["url"] = _get_media_url_with_reddit_api(reddit_url)
             # result["url"] = reddit_media_url + "/CMAF_720.mp4?source=fallback"
+
+    return result
+
+def get_twitter_link_details(twitter_url: str):
+    twitter_media_url = _get_media_url_with_gallery_dl(twitter_url)
+    result = {
+        "original_url": twitter_url,
+        "url": ""
+    }
+    if twitter_media_url:
+        parsed = urlparse(twitter_media_url)
+        domain = parsed.netloc.lower()
+        if domain in TWITTER_MEDIA_DOMAINS:
+            result["url"] = twitter_media_url
 
     return result

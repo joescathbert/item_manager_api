@@ -1,0 +1,5 @@
+REDDIT_DOMAINS: list[str] = ["www.reddit.com", "reddit.com"]
+TWITTER_DOMAINS: list[str] = ["x.com", "twitter.com"]
+REDGIFS_DOMAINS: list[str] = ["www.redgifs.com", "redgifs.com", "www.v3.redgifs.com", "v3.redgifs.com"]
+REDDIT_MEDIA_DOMAINS: list[str] = ["v.redd.it"]
+TWITTER_MEDIA_DOMAINS: list[str] = ["video.twimg.com"]

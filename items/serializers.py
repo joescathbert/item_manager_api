@@ -7,7 +7,8 @@ from .models.link import Link
 from .models.file_group import FileGroup
 from .models.file import File
 from utils.url_refiner import refine_url
-from utils.reddit_api import get_reddit_link_details
+from utils.media_extractor import get_reddit_link_details, get_twitter_link_details
+from utils.domain_urls import REDDIT_DOMAINS, TWITTER_DOMAINS
 
 class TagSerializer(serializers.ModelSerializer):
     class Meta:
@@ -103,13 +104,17 @@ class LinkSerializer(serializers.ModelSerializer):
         try:
             refined = refine_url(value)
 
-            # If it's a reddit URL, fetch media details
+            # If it's a reddit or twiiter URL, fetch media details
             parsed = urlparse(refined)
-            if parsed.netloc.lower() in ["www.reddit.com", "reddit.com"]:
+            if parsed.netloc.lower() in REDDIT_DOMAINS:
                 details = get_reddit_link_details(refined)
                 if not details or not details.get("url"):
                     raise serializers.ValidationError("Could not extract media URL from Reddit link.")
-                # stash media_url into serializer context so we can save it later
+                self._media_url = details["url"]
+            elif parsed.netloc.lower() in TWITTER_DOMAINS:
+                details = get_twitter_link_details(refined)
+                if not details or not details.get("url"):
+                    raise serializers.ValidationError("Could not extract media URL from Reddit link.")
                 self._media_url = details["url"]
 
             return refined

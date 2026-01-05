@@ -3,10 +3,10 @@ from django.http import StreamingHttpResponse, HttpResponse, HttpResponseBadRequ
 from django.views.decorators.http import require_http_methods
 from urllib.parse import urlparse
 
-# Define the allowed media domains to prevent your proxy from being abused
+# Allowed media domains to prevent your proxy from being abused
 ALLOWED_MEDIA_DOMAINS = [
     'media.redgifs.com',
-    # Add other media domains you might proxy, e.g., 'v.redd.it', 'gfycat.com'
+    'video.twimg.com',
 ]
 
 @require_http_methods(["GET"])
