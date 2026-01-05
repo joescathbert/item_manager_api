@@ -2,9 +2,10 @@ import io
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 from utils.g_drive_authentication import authenticate_user
+from django.conf import settings
 
 # Folder ID in Google Drive where files will be uploaded
-DRIVE_FOLDER_ID = ""
+DRIVE_FOLDER_ID = settings.GDRIVE_FOLDER_ID
 
 def upload_to_drive_oauth(django_file, file_name):
     # 1. Authenticate as the user

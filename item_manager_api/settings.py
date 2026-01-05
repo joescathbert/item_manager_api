@@ -42,6 +42,8 @@ SWAGGER_SETTINGS = {
     "DEFAULT_API_URL": f"http://{DJANGO_HOST}:{DJANGO_PORT}",
 }
 
+GDRIVE_FOLDER_ID = os.getenv('GDRIVE_FOLDER_ID', '')
+
 # Application definition
 
 INSTALLED_APPS = [
