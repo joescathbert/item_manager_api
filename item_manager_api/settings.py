@@ -28,20 +28,21 @@ DEBUG = True
 
 CORS_ALLOW_ALL_ORIGINS = True
 
-django_host = os.getenv('DJANGO_ALLOWED_HOST', 'localhost')
-django_port = os.getenv('DJANGO_PORT', '8000')
+DJANGO_HOST = os.getenv('DJANGO_ALLOWED_HOST', 'localhost')
+DJANGO_PORT = os.getenv('DJANGO_PORT', '8000')
 
-ALLOWED_HOSTS = ["localhost", "127.0.0.1"] + [django_host]
+ALLOWED_HOSTS = ["localhost", "127.0.0.1"] + [DJANGO_HOST]
 
 CSRF_TRUSTED_ORIGINS = [
-    f"http://localhost:{django_port}",
-    f"http://127.0.0.1:{django_port}",
-] + [f"http://{django_host}:{django_port}"]
+    f"http://localhost:{DJANGO_PORT}",
+    f"http://127.0.0.1:{DJANGO_PORT}",
+] + [f"http://{DJANGO_HOST}:{DJANGO_PORT}"]
 
 SWAGGER_SETTINGS = {
-    "DEFAULT_API_URL": f"http://{django_host}:{django_port}",
+    "DEFAULT_API_URL": f"http://{DJANGO_HOST}:{DJANGO_PORT}",
 }
 
+GDRIVE_FOLDER_ID = os.getenv('GDRIVE_FOLDER_ID', '')
 
 # Application definition
 

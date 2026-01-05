@@ -21,17 +21,17 @@ class Item(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
 
-    def clean(self):
-        # If this Item already has a Link, enforce type consistency
-        if hasattr(self, "link") and self.type != "link":
-            raise ValidationError("Item type must remain 'link' if a Link is attached.")
-        # If this Item already has a FileGroup, enforce type consistency
-        if hasattr(self, "file_group") and self.type != "file_group":
-            raise ValidationError("Item type must remain 'file_group' if a FileGroup is attached.")
+    # def clean(self):
+    #     # If this Item already has a Link, enforce type consistency
+    #     if hasattr(self, "link") and self.type != "link":
+    #         raise ValidationError("Item type must remain 'link' if a Link is attached.")
+    #     # If this Item already has a FileGroup, enforce type consistency
+    #     if hasattr(self, "file_group") and self.type != "file_group":
+    #         raise ValidationError("Item type must remain 'file_group' if a FileGroup is attached.")
 
-    def save(self, *args, **kwargs):
-        self.clean()
-        super().save(*args, **kwargs)
+    # def save(self, *args, **kwargs):
+    #     self.clean()
+    #     super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.name} ({self.type})"

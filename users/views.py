@@ -25,7 +25,6 @@ class UserViewSet(viewsets.ModelViewSet):
         ],
         responses={200: UserSerializer()}
     )
-
     @action(detail=False, methods=['get'], url_path='by-username', permission_classes=[AllowAny])
     def get_by_username(self, request):
         username = request.query_params.get('username')

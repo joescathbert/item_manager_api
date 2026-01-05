@@ -5,3 +5,9 @@ psycopg2-binary
 django-extensions
 gunicorn
 django-cors-headers
+requests
+gallery-dl
+django-filter
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib

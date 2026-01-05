@@ -37,3 +37,7 @@ static/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Cred files
+client_secrets.json
+token.pickle
