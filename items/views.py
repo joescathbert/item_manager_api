@@ -29,6 +29,25 @@ def force_port(url: str, port: int = 8000) -> str:
 
 class ItemPagination(PageNumberPagination):
     page_size = 5
+    page_size_query_param = "limit"
+    max_page_size = 100
+
+    def get_page_size(self, request):
+        """
+        - If ?limit is provided and > 0, use that (capped at max_page_size).
+        - If ?limit=0, return None (disable pagination, return all items).
+        - If no ?limit, return default page_size (5).
+        """
+        limit = request.query_params.get(self.page_size_query_param)
+        if limit is None:
+            return self.page_size  # default = 5
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            return self.page_size
+        if limit == 0:
+            return None  # disables pagination
+        return min(limit, self.max_page_size)
 
     # Overrides the get_full_url method
     def get_next_link(self):
@@ -83,6 +102,12 @@ class ItemViewSet(viewsets.ModelViewSet):
     @swagger_auto_schema(
         manual_parameters=[
             openapi.Parameter(
+                "limit",
+                openapi.IN_QUERY,
+                description="Number of items per page. If omitted, all items are returned.",
+                type=openapi.TYPE_INTEGER,
+            ),
+            openapi.Parameter(
                 "tag_names",
                 openapi.IN_QUERY,
                 description="Comma-separated list of tag names to filter items",
@@ -91,7 +116,55 @@ class ItemViewSet(viewsets.ModelViewSet):
         ]
     )
     def list(self, request, *args, **kwargs):
-        return super().list(request, *args,)
+        return super().list(request, *args, **kwargs)
+
+    @swagger_auto_schema(
+        manual_parameters=[
+            openapi.Parameter(
+                "tag_names",
+                openapi.IN_QUERY,
+                description="Comma-separated list of tag names to filter items",
+                type=openapi.TYPE_STRING,
+            ),
+            openapi.Parameter(
+                "ordering",
+                openapi.IN_QUERY,
+                description="Ordering field, e.g. 'name' or '-created_at'",
+                type=openapi.TYPE_STRING,
+            ),
+        ],
+        responses={
+            200: openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "prev_id": openapi.Schema(type=openapi.TYPE_INTEGER, description="Previous item ID"),
+                    "next_id": openapi.Schema(type=openapi.TYPE_INTEGER, description="Next item ID"),
+                },
+            )
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="neighbors")
+    def neighbors(self, request, pk=None):
+        """
+        Return prev and next item IDs based on current filters and ordering.
+        """
+        # Apply filters
+        queryset = self.filter_queryset(self.get_queryset())
+        # Apply ordering if provided
+        ordering = request.query_params.get("ordering")
+        if ordering:
+            queryset = queryset.order_by(ordering)
+
+        ids = list(queryset.values_list("id", flat=True))
+        try:
+            idx = ids.index(int(pk))
+        except ValueError:
+            return Response({"prev_id": None, "next_id": None})
+
+        prev_id = ids[idx - 1] if idx > 0 else None
+        next_id = ids[idx + 1] if idx < len(ids) - 1 else None
+
+        return Response({"prev_id": prev_id, "next_id": next_id})
 
 class TagViewSet(viewsets.ModelViewSet):
     queryset = Tag.objects.all()
