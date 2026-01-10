@@ -22,6 +22,8 @@ from .serializers import (
 )
 from utils.g_drive import upload_to_drive_oauth
 
+PREFILTER_TAGS = []
+
 def force_port(url: str, port: int = 8000) -> str:
     parsed = urlparse(url)
     netloc = f"{parsed.hostname}:{port}"
@@ -88,8 +90,10 @@ class ItemViewSet(viewsets.ModelViewSet):
     ordering_fields = ["created_at", "name"]
     ordering = ["-created_at"]
 
-    # def get_queryset(self): # ✅ Only return items with tag "content" by default
-    #     return Item.objects.filter(tags__name__in=["content-p", "content-m"]).distinct()
+    def get_queryset(self):
+        if PREFILTER_TAGS:
+            return Item.objects.filter(tags__name__in=PREFILTER_TAGS).distinct()
+        return Item.objects.all()
 
     def perform_create(self, serializer):
         # ✅ normal users always get themselves as owner
@@ -170,6 +174,22 @@ class TagViewSet(viewsets.ModelViewSet):
     queryset = Tag.objects.all()
     serializer_class = TagSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        if PREFILTER_TAGS:
+            # Gets the IDs of all Items that match the premature tags
+            premature_item_ids = Item.objects.filter(
+                tags__name__in=PREFILTER_TAGS
+            ).values_list('id', flat=True)
+
+            # Filters the Tags to only those associated with those Items
+            queryset = Tag.objects.filter(
+                items__id__in=premature_item_ids
+            ).distinct()
+
+            return queryset.order_by('name')
+
+        return Tag.objects.all().order_by('name')
 
 class LinkViewSet(viewsets.ModelViewSet):
     queryset = Link.objects.all()
