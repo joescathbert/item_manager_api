@@ -10,6 +10,7 @@ from django_filters.rest_framework import DjangoFilterBackend, FilterSet, filter
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.conf import settings
+from django.db.models import Count
 from urllib.parse import urlparse, urlunparse
 from .models.item import Item
 from .models.tag import Tag
@@ -176,20 +177,26 @@ class TagViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        queryset = Tag.objects.all()
+
         if PREFILTER_TAGS:
-            # Gets the IDs of all Items that match the premature tags
+            # Get the IDs of all Items that match the premature tags
             premature_item_ids = Item.objects.filter(
                 tags__name__in=PREFILTER_TAGS
             ).values_list('id', flat=True)
 
-            # Filters the Tags to only those associated with those Items
-            queryset = Tag.objects.filter(
+            # Filter the Tags to only those associated with those Items
+            queryset = queryset.filter(
                 items__id__in=premature_item_ids
             ).distinct()
 
-            return queryset.order_by('name')
+        # Annotate the queryset with the count of associated items
+        queryset = queryset.annotate(
+            item_count=Count('items')
+        )
 
-        return Tag.objects.all().order_by('name')
+        # Order the results by the calculated count in descending order
+        return queryset.order_by('-item_count', 'name')
 
 class LinkViewSet(viewsets.ModelViewSet):
     queryset = Link.objects.all()
