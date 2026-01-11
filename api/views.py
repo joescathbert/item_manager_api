@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 ALLOWED_MEDIA_DOMAINS = [
     'media.redgifs.com',
     'video.twimg.com',
+    'i.imgur.com',
 ]
 
 @require_http_methods(["GET"])

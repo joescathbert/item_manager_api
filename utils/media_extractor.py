@@ -2,7 +2,8 @@ import requests
 import re
 import subprocess
 from urllib.parse import urlparse
-from utils.domain_urls import REDGIFS_DOMAINS, REDDIT_DOMAINS, TWITTER_DOMAINS, REDDIT_MEDIA_DOMAINS, TWITTER_MEDIA_DOMAINS
+from utils.domain_urls import (REDGIFS_DOMAINS, REDDIT_DOMAINS, TWITTER_DOMAINS, REDDIT_MEDIA_DOMAINS,
+    TWITTER_MEDIA_DOMAINS, IMGUR_DOMAINS)
 
 # --- Configuration ---
 # Reddit requires a User-Agent header for API requests.
@@ -108,6 +109,8 @@ def _get_media_url_with_gallery_dl(url: str) -> str:
             media_url = mobile_media_url.strip()
         elif domain in REDDIT_DOMAINS:
             media_url = media_url.split('ytdl:')[-1].strip()
+        elif domain in IMGUR_DOMAINS:
+            pass
         elif domain in TWITTER_DOMAINS:
             pass
         return media_url
@@ -128,6 +131,10 @@ def get_reddit_link_details(reddit_url: str):
             redgifs_media_url = _get_media_url_with_gallery_dl(reddit_media_url)
             if redgifs_media_url:
                 result["url"] = redgifs_media_url
+        elif domain in IMGUR_DOMAINS:
+            imgur_media_url = _get_media_url_with_gallery_dl(reddit_media_url)
+            if imgur_media_url:
+                result["url"] = imgur_media_url
         elif domain in REDDIT_MEDIA_DOMAINS:
             result["url"] = _get_media_url_with_reddit_api(reddit_url)
             # result["url"] = reddit_media_url + "/CMAF_720.mp4?source=fallback"
