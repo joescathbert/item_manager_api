@@ -15,11 +15,12 @@ from urllib.parse import urlparse, urlunparse
 from .models.item import Item
 from .models.tag import Tag
 from .models.link import Link
+from .models.media_url import MediaURL
 from .models.file_group import FileGroup
 from .models.file import File
 from .serializers import (
     ItemSerializer, TagSerializer, LinkSerializer,
-    FileGroupSerializer, FileSerializer
+    FileGroupSerializer, FileSerializer, MediaURLSerializer
 )
 from utils.g_drive import upload_to_drive_oauth
 
@@ -199,8 +200,13 @@ class TagViewSet(viewsets.ModelViewSet):
         return queryset.order_by('-item_count', 'name')
 
 class LinkViewSet(viewsets.ModelViewSet):
-    queryset = Link.objects.all()
+    queryset = Link.objects.prefetch_related('media_urls').all()
     serializer_class = LinkSerializer
+    permission_classes = [IsAuthenticated]
+
+class MediaURLViewSet(viewsets.ModelViewSet):
+    queryset = MediaURL.objects.all()
+    serializer_class = MediaURLSerializer
     permission_classes = [IsAuthenticated]
 
 class FileGroupViewSet(viewsets.ModelViewSet):
