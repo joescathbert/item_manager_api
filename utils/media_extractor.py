@@ -75,12 +75,21 @@ def process_video_entry(entry: Dict) -> Dict:
     video_formats = [f for f in formats if f.get('vcodec') != 'none']
 
     if video_formats:
-        # Sort by height (resolution) descending
-        video_formats.sort(key=lambda x: x.get('height') or 0, reverse=True)
+        # Calculate the 'quality' based on the shortest dimension
+        for f in video_formats:
+            w = f.get('width') or 0
+            h = f.get('height') or 0
+            f['short_side'] = min(w, h) if w and h else (h or w or 0)
 
+        # Sort by that shortest side descending
+        video_formats.sort(key=lambda x: x['short_side'], reverse=True)
+        
         hd = video_formats[0]['url']
-        # If only one format exists, use it for both
-        sd = video_formats[1]['url'] if len(video_formats) > 1 else hd
+        
+        # Target 600p as the standard SD threshold
+        # If no format is <= 600p, take the lowest quality available
+        sd_format = next((f for f in video_formats if f['short_side'] <= 600), video_formats[-1])
+        sd = sd_format['url']
 
         return {
             "hd_url": hd,

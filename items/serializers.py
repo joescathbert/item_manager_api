@@ -10,6 +10,7 @@ from .models.file import File
 from utils.url_refiner import refine_url
 from utils.media_extractor import get_media_details
 from utils.domain_urls import REDDIT_DOMAINS, TWITTER_DOMAINS
+from utils.tag_service import auto_tag_item_from_url
 
 class TagSerializer(serializers.ModelSerializer):
     class Meta:
@@ -51,30 +52,48 @@ class ItemSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data: dict) -> Item:
+        # Pop non-model fields
         tag_names: List[str] = validated_data.pop("tag_names", [])
-        # inject request.user if owner not provided
+
+        # Inject owner if missing
         if "owner" not in validated_data:
             request = self.context.get("request")
             if request and hasattr(request, "user"):
                 validated_data["owner"] = request.user
-        item: Item = Item.objects.create(**validated_data)
-        tags: List[Tag] = [Tag.objects.get_or_create(name=name)[0] for name in tag_names]
-        item.tags.set(tags)
+
+        # Use super().create to build the object and save to DB
+        item = super().create(validated_data)
+
+        # Handle manual tags
+        if tag_names:
+            tags = [Tag.objects.get_or_create(name=name)[0] for name in tag_names]
+            item.tags.set(tags)
+
         return item
 
     def update(self, instance: Item, validated_data: dict) -> Item:
-        tag_names: Optional[List[str]] = validated_data.pop("tag_names", None)
-        # same logic if you want to allow defaulting owner on update
+        # Pop non-model fields (manual tags)
+        tag_names = validated_data.pop("tag_names", None)
+
+        # Logic for owner (if needed)
         if "owner" not in validated_data:
             request = self.context.get("request")
             if request and hasattr(request, "user"):
                 validated_data["owner"] = request.user
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        instance.save()
+
+        # Use super() to update all other model fields (name, type, origin, etc.)
+        instance = super().update(instance, validated_data)
+
+        # Handle manual tags
         if tag_names is not None:
-            tags: List[Tag] = [Tag.objects.get_or_create(name=name)[0] for name in tag_names]
+            tags = [Tag.objects.get_or_create(name=name)[0] for name in tag_names]
             instance.tags.set(tags)
+
+        # Re apply auto tags for source
+        link = Link.objects.filter(item=instance).first()
+        if link:
+            auto_tag_item_from_url(instance, link.url)
+
         return instance
 
     def get_link_id(self, obj: Item) -> Optional[int]:
@@ -131,8 +150,9 @@ class LinkSerializer(serializers.ModelSerializer):
             # Initialize a list to hold multiple media items
             self._extracted_media = []
             # Refine the URL
-            refined = refine_url(value)
-            # If it's a reddit or twiiter URL, fetch media details
+            refined_url_info = refine_url(value)
+            refined = refined_url_info.get('url')
+            # If it's a reddit or twitter URL, fetch media details
             parsed = urlparse(refined)
             if parsed.netloc.lower() in REDDIT_DOMAINS + TWITTER_DOMAINS:
                 details = get_media_details(refined)
@@ -142,22 +162,25 @@ class LinkSerializer(serializers.ModelSerializer):
                         self._extracted_media.append(each_media | {'url': each_media['hd_url']})
 
             if not self._extracted_media:
-                 # Optional: raise error if you require at least one media link
-                 pass 
+                # Optional: raise error if you require at least one media link
+                pass 
 
             return refined
         except ValueError as e:
             raise serializers.ValidationError(str(e))
 
     def create(self, validated_data: dict) -> Link:
-        # 1. Create the Link instance
+        # Create the Link instance
         # Still populate old media_url for compatibility during migration
         if hasattr(self, "_extracted_media") and self._extracted_media:
             validated_data["media_url"] = self._extracted_media[0]["url"]
 
         link = super().create(validated_data)
 
-        # 2. Create the associated MediaURL instances
+        # Update the parent Item's tags
+        auto_tag_item_from_url(link.item, link.url)
+
+        # Create the associated MediaURL instances
         if hasattr(self, "_extracted_media"):
             media_objects = [
                 MediaURL(
@@ -176,6 +199,9 @@ class LinkSerializer(serializers.ModelSerializer):
 
     def update(self, instance: Link, validated_data: dict) -> Link:
         link = super().update(instance, validated_data)
+
+        # Always trigger auto-tagging on update to allow for re-triggering old records
+        auto_tag_item_from_url(link.item, link.url)
 
         # If URL changed, replace the media links
         if hasattr(self, "_extracted_media"):
