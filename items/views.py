@@ -10,17 +10,21 @@ from django_filters.rest_framework import DjangoFilterBackend, FilterSet, filter
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.conf import settings
+from django.db.models import Count
 from urllib.parse import urlparse, urlunparse
 from .models.item import Item
 from .models.tag import Tag
 from .models.link import Link
+from .models.media_url import MediaURL
 from .models.file_group import FileGroup
 from .models.file import File
 from .serializers import (
     ItemSerializer, TagSerializer, LinkSerializer,
-    FileGroupSerializer, FileSerializer
+    FileGroupSerializer, FileSerializer, MediaURLSerializer
 )
 from utils.g_drive import upload_to_drive_oauth
+
+PREFILTER_TAGS = []
 
 def force_port(url: str, port: int = 8000) -> str:
     parsed = urlparse(url)
@@ -29,6 +33,25 @@ def force_port(url: str, port: int = 8000) -> str:
 
 class ItemPagination(PageNumberPagination):
     page_size = 5
+    page_size_query_param = "limit"
+    max_page_size = 100
+
+    def get_page_size(self, request):
+        """
+        - If ?limit is provided and > 0, use that (capped at max_page_size).
+        - If ?limit=0, return None (disable pagination, return all items).
+        - If no ?limit, return default page_size (5).
+        """
+        limit = request.query_params.get(self.page_size_query_param)
+        if limit is None:
+            return self.page_size  # default = 5
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            return self.page_size
+        if limit == 0:
+            return None  # disables pagination
+        return min(limit, self.max_page_size)
 
     # Overrides the get_full_url method
     def get_next_link(self):
@@ -69,8 +92,10 @@ class ItemViewSet(viewsets.ModelViewSet):
     ordering_fields = ["created_at", "name"]
     ordering = ["-created_at"]
 
-    # def get_queryset(self): # ✅ Only return items with tag "content" by default
-    #     return Item.objects.filter(tags__name__in=["content-porn", "content-movie"]).distinct()
+    def get_queryset(self):
+        if PREFILTER_TAGS:
+            return Item.objects.filter(tags__name__in=PREFILTER_TAGS).distinct()
+        return Item.objects.all()
 
     def perform_create(self, serializer):
         # ✅ normal users always get themselves as owner
@@ -83,6 +108,12 @@ class ItemViewSet(viewsets.ModelViewSet):
     @swagger_auto_schema(
         manual_parameters=[
             openapi.Parameter(
+                "limit",
+                openapi.IN_QUERY,
+                description="Number of items per page. If omitted, all items are returned.",
+                type=openapi.TYPE_INTEGER,
+            ),
+            openapi.Parameter(
                 "tag_names",
                 openapi.IN_QUERY,
                 description="Comma-separated list of tag names to filter items",
@@ -91,16 +122,91 @@ class ItemViewSet(viewsets.ModelViewSet):
         ]
     )
     def list(self, request, *args, **kwargs):
-        return super().list(request, *args,)
+        return super().list(request, *args, **kwargs)
+
+    @swagger_auto_schema(
+        manual_parameters=[
+            openapi.Parameter(
+                "tag_names",
+                openapi.IN_QUERY,
+                description="Comma-separated list of tag names to filter items",
+                type=openapi.TYPE_STRING,
+            ),
+            openapi.Parameter(
+                "ordering",
+                openapi.IN_QUERY,
+                description="Ordering field, e.g. 'name' or '-created_at'",
+                type=openapi.TYPE_STRING,
+            ),
+        ],
+        responses={
+            200: openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    "prev_id": openapi.Schema(type=openapi.TYPE_INTEGER, description="Previous item ID"),
+                    "next_id": openapi.Schema(type=openapi.TYPE_INTEGER, description="Next item ID"),
+                },
+            )
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="neighbors")
+    def neighbors(self, request, pk=None):
+        """
+        Return prev and next item IDs based on current filters and ordering.
+        """
+        # Apply filters
+        queryset = self.filter_queryset(self.get_queryset())
+        # Apply ordering if provided
+        ordering = request.query_params.get("ordering")
+        if ordering:
+            queryset = queryset.order_by(ordering)
+
+        ids = list(queryset.values_list("id", flat=True))
+        try:
+            idx = ids.index(int(pk))
+        except ValueError:
+            return Response({"prev_id": None, "next_id": None})
+
+        prev_id = ids[idx - 1] if idx > 0 else None
+        next_id = ids[idx + 1] if idx < len(ids) - 1 else None
+
+        return Response({"prev_id": prev_id, "next_id": next_id})
 
 class TagViewSet(viewsets.ModelViewSet):
     queryset = Tag.objects.all()
     serializer_class = TagSerializer
     permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        queryset = Tag.objects.all()
+
+        if PREFILTER_TAGS:
+            # Get the IDs of all Items that match the premature tags
+            premature_item_ids = Item.objects.filter(
+                tags__name__in=PREFILTER_TAGS
+            ).values_list('id', flat=True)
+
+            # Filter the Tags to only those associated with those Items
+            queryset = queryset.filter(
+                items__id__in=premature_item_ids
+            ).distinct()
+
+        # Annotate the queryset with the count of associated items
+        queryset = queryset.annotate(
+            item_count=Count('items')
+        )
+
+        # Order the results by the calculated count in descending order
+        return queryset.order_by('-item_count', 'name')
+
 class LinkViewSet(viewsets.ModelViewSet):
-    queryset = Link.objects.all()
+    queryset = Link.objects.prefetch_related('media_urls').all()
     serializer_class = LinkSerializer
+    permission_classes = [IsAuthenticated]
+
+class MediaURLViewSet(viewsets.ModelViewSet):
+    queryset = MediaURL.objects.all()
+    serializer_class = MediaURLSerializer
     permission_classes = [IsAuthenticated]
 
 class FileGroupViewSet(viewsets.ModelViewSet):

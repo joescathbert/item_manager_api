@@ -11,3 +11,5 @@ django-filter
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
+yt-dlp
+python-dotenv
