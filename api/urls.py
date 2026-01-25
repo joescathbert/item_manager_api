@@ -14,4 +14,5 @@ router.register(r'file-groups', FileGroupViewSet)
 router.register(r'files', FileViewSet)
 
 urlpatterns = router.urls + [
-    path('proxy-media/', media_proxy_view, name='media-proxy'),]
+    path('proxy-media/', media_proxy_view, name='media-proxy'),
+]

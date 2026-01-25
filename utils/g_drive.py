@@ -1,6 +1,6 @@
 import io
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 from utils.g_drive_authentication import authenticate_user
 from django.conf import settings
 
@@ -43,3 +43,26 @@ def upload_to_drive_oauth(django_file, file_name):
 
      # Return public URL
     return f"https://drive.google.com/file/d/{file_id}/view"
+
+def download_from_drive_oauth(file_id):
+    # 1. Authenticate and build service
+    creds = authenticate_user()
+    service = build("drive", "v3", credentials=creds)
+
+    # 2. Request the file content
+    request = service.files().get_media(fileId=file_id)
+
+    # 3. Use an io.BytesIO buffer to hold the downloaded data
+    file_buffer = io.BytesIO()
+    downloader = MediaIoBaseDownload(file_buffer, request)
+
+    done = False
+    while done is False:
+        status, done = downloader.next_chunk()
+        print(f"Download {int(status.progress() * 100)}%.")
+
+    # 4. Move the pointer to the beginning of the buffer
+    file_buffer.seek(0)
+
+    # Return the buffer content (or you could save it to a local file)
+    return file_buffer

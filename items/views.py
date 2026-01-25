@@ -1,8 +1,9 @@
 import uuid
 import os
+import mimetypes
 from rest_framework import viewsets, filters, status
 from rest_framework.utils.urls import replace_query_param
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -11,6 +12,8 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.conf import settings
 from django.db.models import Count
+from django.utils.encoding import smart_str
+from django.http import FileResponse, Http404
 from urllib.parse import urlparse, urlunparse
 from .models.item import Item
 from .models.tag import Tag
@@ -23,6 +26,8 @@ from .serializers import (
     FileGroupSerializer, FileSerializer, MediaURLSerializer
 )
 from utils.g_drive import upload_to_drive_oauth
+
+IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 
 PREFILTER_TAGS = []
 
@@ -234,8 +239,8 @@ class FileGroupViewSet(viewsets.ModelViewSet):
         consumes=["multipart/form-data"],
         responses={201: FileGroupSerializer},
     )
-    @action(detail=False, methods=["post"], url_path="upload-multiple")
-    def upload_multiple(self, request):
+    @action(detail=False, methods=["post"], url_path="upload-to-gdrive")
+    def upload_to_gdrvive(self, request):
         """
         Upload multiple files, attach them to an existing Item of type 'file_group'.
         """
@@ -273,18 +278,20 @@ class FileGroupViewSet(viewsets.ModelViewSet):
             drive_url = upload_to_drive_oauth(f, serial_name)
 
             # File type logic
-            if total == 1:
-                file_type = "ORG"
+            if file_ext in IMAGE_EXTENSIONS:
+                file_type = f"IMG_{idx}"
+            elif total == 1:
+                file_type = "VID_ORG"
             elif idx == total:
-                file_type = "ORG"
+                file_type = "VID_ORG"
             else:
-                file_type = f"RAW_{idx}"
+                file_type = f"VID_RAW_{idx}"
 
             file_obj = File.objects.create(
                 file_group=file_group,
                 file_name=serial_name,
                 file_type=file_type,
-                file_origin="upload",
+                file_origin="gdrive",
                 file_url=drive_url
             )
             created_files.append(file_obj)
@@ -298,3 +305,43 @@ class FileViewSet(viewsets.ModelViewSet):
     queryset = File.objects.all()
     serializer_class = FileSerializer
     permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        responses={
+            200: openapi.Response(
+                description="Success",
+                schema=openapi.Schema(type=openapi.TYPE_FILE),
+            ),
+        }
+    )
+    @action(detail=True, methods=["get"], url_path="serve", permission_classes=[AllowAny])
+    def serve_file(self, request, pk=None):
+        """
+        Serves the file from the local GDrive Desktop path (or cache).
+        """
+        file_instance = self.get_object()
+
+        file_path = os.path.join(settings.GDRIVE_LOCAL_PATH, file_instance.file_name)
+
+        if not os.path.exists(file_path):
+            # Fallback: If not on G: drive, you could trigger a download here
+            # or return 404
+            raise Http404("File not found on the synchronized Drive path.")
+
+        # 2. Detect MIME type (video/mp4, image/jpeg, etc.)
+        content_type, _ = mimetypes.guess_type(file_path)
+        if not content_type:
+            content_type = 'application/octet-stream'
+
+        # 3. Stream the file
+        # 'as_attachment=False' allows browser/Angular to play video/show image directly
+        response = FileResponse(open(file_path, 'rb'), content_type=content_type)
+
+        # Optional: Force the filename in headers
+        response['Content-Disposition'] = f'inline; filename="{smart_str(file_instance.file_name)}"'
+
+        # This signals to the browser that the stream supports seeking.
+        # NOTES: Without this, chromium browser doesn't allow seeking.
+        response['Accept-Ranges'] = 'bytes'
+
+        return response

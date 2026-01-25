@@ -1,3 +1,4 @@
+import threading
 import yt_dlp
 import subprocess
 import json
@@ -7,23 +8,40 @@ from typing import Dict, Any
 def get_media_details(url: str) -> Dict[str, Any]:
     result = {"original_url": url, "media": []}
 
-    # 1. Video Extraction (yt-dlp) - Handles single or multiple videos
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'skip_download': True}
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+    # We use a list to store the yt-dlp result so the thread can modify it
+    ext_data = {"info": None, "error": None}
 
-            # yt-dlp puts multiple videos into an 'entries' list
-            entries = info.get('entries', [info])
+    def target():
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'skip_download': True,
+                # 'extract_flat': True, # Start flat for speed
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ext_data["info"] = ydl.extract_info(url, download=False)
+        except Exception as e:
+            ext_data["error"] = e
 
-            for entry in entries:
-                # Basic check to see if this specific entry is a video
-                if entry.get('vcodec') != 'none' or 'formats' in entry:
-                    video_data = process_video_entry(entry)
-                    if video_data:
-                        result["media"].append(video_data)
-    except Exception as e:
-        print(f"yt-dlp error (expected if only images): {e}")
+    # Start the thread
+    thread = threading.Thread(target=target)
+    thread.start()
+    thread.join(timeout=20) # <--- STRICT 10 SECOND LIMIT
+
+    if thread.is_alive():
+        print(f"!!! yt-dlp timed out for {url}. Killing thread and moving to gallery-dl.")
+        # We can't actually 'kill' a thread easily, but we can ignore it 
+        # and move on, letting it finish in the background.
+    elif ext_data["info"]:
+        # If yt-dlp finished and found something
+        entries = ext_data["info"].get('entries', [ext_data["info"]])
+        print(json.dumps(ext_data["info"], indent=2))
+        for entry in entries:
+            # Basic check to see if this specific entry is a video
+            if entry.get('vcodec') != 'none' or 'formats' in entry:
+                video_data = process_video_entry(entry)
+                if video_data:
+                    result["media"].append(video_data)
 
     # 2. Image Extraction (gallery-dl) - Handles galleries and mixed media
     try:
