@@ -1,4 +1,5 @@
 import io
+import os
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 from utils.g_drive_authentication import authenticate_user
@@ -38,8 +39,8 @@ def upload_to_drive_oauth(django_file, file_name):
         body={"role": "reader", "type": "anyone"},
     ).execute()
 
-    print(f"\n✅ Uploaded file ID: {file_id}")
-    print(f"🔗 Public URL: https://drive.google.com/file/d/{file_id}/view")
+    print(f"\nUploaded file ID: {file_id}")
+    print(f"Public URL: https://drive.google.com/file/d/{file_id}/view")
 
      # Return public URL
     return f"https://drive.google.com/file/d/{file_id}/view"
@@ -66,3 +67,46 @@ def download_from_drive_oauth(file_id):
 
     # Return the buffer content (or you could save it to a local file)
     return file_buffer
+
+def rename_drive_file(file_id, new_name):
+    """
+    Renames a file on Google Drive.
+    """
+    # 1. Authenticate and build service
+    creds = authenticate_user()
+    service = build("drive", "v3", credentials=creds)
+
+    # 2. Define the change (the new name)
+    file_metadata = {
+        'name': new_name
+    }
+
+    try:
+        # 3. Update the file metadata
+        updated_file = service.files().update(
+            fileId=file_id,
+            body=file_metadata,
+            fields='id, name'
+        ).execute()
+
+        print(f"File renamed successfully to: {updated_file.get('name')}")
+        return updated_file
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
+
+def rename_local_drive_file(old_name, new_name):
+    old_path = os.path.join(settings.GDRIVE_LOCAL_PATH, old_name)
+    new_path = os.path.join(settings.GDRIVE_LOCAL_PATH, new_name)
+
+    try:
+        os.rename(old_path, new_path)
+        print(f"Renamed locally: {new_path}")
+        return True
+    except FileNotFoundError:
+        print("The file was not found on your G: drive.")
+        return False
+    except Exception as e:
+        print(f"Error: {e}")
+        return False

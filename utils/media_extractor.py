@@ -26,7 +26,7 @@ def get_media_details(url: str) -> Dict[str, Any]:
     # Start the thread
     thread = threading.Thread(target=target)
     thread.start()
-    thread.join(timeout=20) # <--- STRICT 10 SECOND LIMIT
+    thread.join(timeout=10) # <--- STRICT 10 SECOND LIMIT
 
     if thread.is_alive():
         print(f"!!! yt-dlp timed out for {url}. Killing thread and moving to gallery-dl.")
@@ -52,7 +52,6 @@ def get_media_details(url: str) -> Dict[str, Any]:
             data = json.loads(process.stdout)
             for entry in data:
                 # gallery-dl entries look like: [index, "URL", {metadata}]
-                # We MUST ensure the second element is a string (the URL)
                 if isinstance(entry, list) and len(entry) >= 2 and isinstance(entry[1], str):
                     image_url = entry[1]
                     parsed_image_url = urlparse(image_url)

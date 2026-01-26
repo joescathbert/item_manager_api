@@ -103,11 +103,11 @@ class ItemViewSet(viewsets.ModelViewSet):
         return Item.objects.all()
 
     def perform_create(self, serializer):
-        # ✅ normal users always get themselves as owner
+        # normal users always get themselves as owner
         if not self.request.user.is_staff:
             serializer.save(owner=self.request.user)
         else:
-            # ✅ admins can override owner if passed in payload
+            # admins can override owner if passed in payload
             serializer.save()
 
     @swagger_auto_schema(
