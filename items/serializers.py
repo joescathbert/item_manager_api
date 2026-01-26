@@ -10,7 +10,7 @@ from .models.file import File
 from utils.url_refiner import refine_url
 from utils.media_extractor import get_media_details
 from utils.domain_urls import REDDIT_DOMAINS, TWITTER_DOMAINS
-from utils.tag_service import auto_tag_item_from_url
+from utils.tag_service import auto_tag_item_from_src
 
 class TagSerializer(serializers.ModelSerializer):
     class Meta:
@@ -91,8 +91,10 @@ class ItemSerializer(serializers.ModelSerializer):
 
         # Re apply auto tags for source
         link = Link.objects.filter(item=instance).first()
-        if link:
-            auto_tag_item_from_url(instance, link.url)
+        file_group = FileGroup.objects.filter(item=instance).first()
+        if link or file_group:
+            link_url = link.url if link else None
+            auto_tag_item_from_src(instance, link_url, file_group)
 
         return instance
 
@@ -178,7 +180,8 @@ class LinkSerializer(serializers.ModelSerializer):
         link = super().create(validated_data)
 
         # Update the parent Item's tags
-        auto_tag_item_from_url(link.item, link.url)
+        file_group = FileGroup.objects.filter(item=link.item).first()
+        auto_tag_item_from_src(link.item, link.url, file_group)
 
         # Create the associated MediaURL instances
         if hasattr(self, "_extracted_media"):
@@ -201,7 +204,8 @@ class LinkSerializer(serializers.ModelSerializer):
         link = super().update(instance, validated_data)
 
         # Always trigger auto-tagging on update to allow for re-triggering old records
-        auto_tag_item_from_url(link.item, link.url)
+        file_group = FileGroup.objects.filter(item=link.item).first()
+        auto_tag_item_from_src(link.item, link.url, file_group)
 
         # If URL changed, replace the media links
         if hasattr(self, "_extracted_media"):

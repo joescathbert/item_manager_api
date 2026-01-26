@@ -26,6 +26,7 @@ from .serializers import (
     FileGroupSerializer, FileSerializer, MediaURLSerializer
 )
 from utils.g_drive import upload_to_drive_oauth
+from utils.tag_service import auto_tag_item_from_src
 
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 
@@ -209,6 +210,14 @@ class LinkViewSet(viewsets.ModelViewSet):
     serializer_class = LinkSerializer
     permission_classes = [IsAuthenticated]
 
+    def perform_destroy(self, instance):
+        item = instance.item
+        file_group = FileGroup.objects.filter(item=item).first()
+
+        instance.delete()
+
+        auto_tag_item_from_src(item, None, file_group)
+
 class MediaURLViewSet(viewsets.ModelViewSet):
     queryset = MediaURL.objects.all()
     serializer_class = MediaURLSerializer
@@ -295,6 +304,12 @@ class FileGroupViewSet(viewsets.ModelViewSet):
                 file_url=drive_url
             )
             created_files.append(file_obj)
+
+        # We trigger this ONLY ONCE after all files are added to the group.
+        link = Link.objects.filter(item=item).first()
+        link_url = link.url if link else None
+
+        auto_tag_item_from_src(item, link_url, file_group)
 
         return Response(
             FileGroupSerializer(file_group).data,

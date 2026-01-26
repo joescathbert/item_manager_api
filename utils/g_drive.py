@@ -39,7 +39,7 @@ def upload_to_drive_oauth(django_file, file_name):
         body={"role": "reader", "type": "anyone"},
     ).execute()
 
-    print(f"\nUploaded file ID: {file_id}")
+    print(f"Gdrive: Uploaded file ID: {file_id}")
     print(f"Public URL: https://drive.google.com/file/d/{file_id}/view")
 
      # Return public URL
@@ -60,7 +60,7 @@ def download_from_drive_oauth(file_id):
     done = False
     while done is False:
         status, done = downloader.next_chunk()
-        print(f"Download {int(status.progress() * 100)}%.")
+        print(f"Gdrive: Download {int(status.progress() * 100)}%.")
 
     # 4. Move the pointer to the beginning of the buffer
     file_buffer.seek(0)
@@ -89,11 +89,11 @@ def rename_drive_file(file_id, new_name):
             fields='id, name'
         ).execute()
 
-        print(f"File renamed successfully to: {updated_file.get('name')}")
+        print(f"Gdrive: File renamed successfully to: {updated_file.get('name')}")
         return updated_file
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        print(f"Gdrive: An error occurred: {e}")
         return None
 
 def rename_local_drive_file(old_name, new_name):
@@ -102,11 +102,11 @@ def rename_local_drive_file(old_name, new_name):
 
     try:
         os.rename(old_path, new_path)
-        print(f"Renamed locally: {new_path}")
+        print(f"Local Drive: File renamed successfully to: {new_path}")
         return True
     except FileNotFoundError:
-        print("The file was not found on your G: drive.")
+        print("Local Drive: The file was not found on your G: drive.")
         return False
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Local Drive: Error: {e}")
         return False
