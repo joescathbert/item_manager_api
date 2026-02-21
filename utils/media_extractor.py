@@ -35,7 +35,6 @@ def get_media_details(url: str) -> Dict[str, Any]:
     elif ext_data["info"]:
         # If yt-dlp finished and found something
         entries = ext_data["info"].get('entries', [ext_data["info"]])
-        print(json.dumps(ext_data["info"], indent=2))
         for entry in entries:
             # Basic check to see if this specific entry is a video
             if entry.get('vcodec') != 'none' or 'formats' in entry:

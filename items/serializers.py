@@ -108,12 +108,13 @@ class ItemSerializer(serializers.ModelSerializer):
 
 
 class MediaURLSerializer(serializers.ModelSerializer):
+    link = serializers.PrimaryKeyRelatedField(queryset=Link.objects.all())
     hd_url_domain = serializers.SerializerMethodField(read_only=True)
     sd_url_domain = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = MediaURL
-        fields = ["id", "url", "hd_url", "hd_url_domain", "sd_url", "sd_url_domain", "media_type", "order"]
+        fields = ["id", "link", "url", "hd_url", "hd_url_domain", "sd_url", "sd_url_domain", "media_type", "order"]
 
     def get_hd_url_domain(self, obj: Link) -> Optional[str]:
         if obj.url:
