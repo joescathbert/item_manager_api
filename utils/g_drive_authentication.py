@@ -33,3 +33,6 @@ def authenticate_user():
             pickle.dump(creds, token)
 
     return creds
+
+if __name__ == "__main__":
+    authenticate_user()

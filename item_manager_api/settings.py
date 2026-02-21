@@ -47,6 +47,8 @@ SWAGGER_SETTINGS = {
 
 GDRIVE_FOLDER_ID = os.getenv('GDRIVE_FOLDER_ID', '')
 
+GDRIVE_LOCAL_PATH = Path(os.getenv('GDRIVE_LOCAL_PATH', ''))
+
 # Application definition
 
 INSTALLED_APPS = [
