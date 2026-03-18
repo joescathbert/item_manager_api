@@ -244,12 +244,20 @@ class FileGroupViewSet(viewsets.ModelViewSet):
                 description="Description of the FileGroup",
                 type=openapi.TYPE_STRING,
             ),
+            openapi.Parameter(
+                "file_types",
+                openapi.IN_FORM,
+                description="File types corresponding to each file (optional; if not provided, defaults to extension-based logic). Must match the order of 'files'.",
+                type=openapi.TYPE_ARRAY,
+                items=openapi.Items(type=openapi.TYPE_STRING),
+                required=True,
+            ),
         ],
         consumes=["multipart/form-data"],
         responses={201: FileGroupSerializer},
     )
     @action(detail=False, methods=["post"], url_path="upload-to-gdrive")
-    def upload_to_gdrvive(self, request):
+    def upload_to_gdrive(self, request):
         """
         Upload multiple files, attach them to an existing Item of type 'file_group'.
         """
@@ -273,11 +281,19 @@ class FileGroupViewSet(viewsets.ModelViewSet):
             defaults={"description": request.data.get("description", "")}
         )
 
-        # Step 4: Handle files
+        # Step 4: Handle files and file types
         uploaded_files = request.FILES.getlist("files")
+        raw_file_types = request.data.getlist("file_types")
+
+        if raw_file_types and len(raw_file_types) == 1 and "," in raw_file_types[0]:
+            file_types = [t.strip() for t in raw_file_types[0].split(",")]
+        else:
+            file_types = raw_file_types
+        
         total = len(uploaded_files)
         created_files = []
 
+        file_type_count = {"RAW": 0, "ORG": 0}
         for idx, f in enumerate(uploaded_files, start=1):
             # Generate serial-like filename
             _, file_ext = os.path.splitext(f.name)
@@ -286,15 +302,21 @@ class FileGroupViewSet(viewsets.ModelViewSet):
             # Upload to Google Drive (placeholder)
             drive_url = upload_to_drive_oauth(f, serial_name)
 
-            # File type logic
-            if file_ext in IMAGE_EXTENSIONS:
-                file_type = f"IMG_{idx}"
-            elif total == 1:
-                file_type = "VID_ORG"
-            elif idx == total:
-                file_type = "VID_ORG"
+            # File type logic: Use provided file_type if available, else default
+            if idx - 1 < len(file_types) and file_types[idx - 1]:
+                prefix = "IMG" if file_ext in IMAGE_EXTENSIONS else "VID"
+                file_t = file_types[idx - 1]
+                file_type_count[file_t] += 1
+                suffix = file_type_count[file_t]
+                file_type = f"{prefix}_{file_t}_{suffix}"
             else:
-                file_type = f"VID_RAW_{idx}"
+                # Fallback to existing logic
+                if file_ext in IMAGE_EXTENSIONS:
+                    file_type = f"IMG_{idx}"
+                elif total == 1 or idx == total:
+                    file_type = "VID_ORG_{idx}"
+                else:
+                    file_type = f"VID_RAW_{idx}"
 
             file_obj = File.objects.create(
                 file_group=file_group,
