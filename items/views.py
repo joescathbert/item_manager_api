@@ -23,7 +23,7 @@ from .models.file_group import FileGroup
 from .models.file import File
 from .serializers import (
     ItemSerializer, TagSerializer, LinkSerializer,
-    FileGroupSerializer, FileSerializer, MediaURLSerializer
+    FileGroupSerializer, FileSerializer, MediaURLSerializer, ItemDetailResponseSerializer
 )
 from utils.g_drive import upload_to_drive_oauth
 from utils.tag_service import auto_tag_item_from_src
@@ -32,10 +32,12 @@ IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 
 PREFILTER_TAGS = []
 
+
 def force_port(url: str, port: int = 8000) -> str:
     parsed = urlparse(url)
     netloc = f"{parsed.hostname}:{port}"
     return urlunparse(parsed._replace(netloc=netloc))
+
 
 class ItemPagination(PageNumberPagination):
     page_size = 5
@@ -74,6 +76,7 @@ class ItemPagination(PageNumberPagination):
         url = force_port(url, settings.DJANGO_PORT)
         return replace_query_param(url, self.page_query_param, self.page.previous_page_number())
 
+
 class ItemFilter(FilterSet):
     tag_names = df_filters.CharFilter(method="filter_tag_names")
 
@@ -100,8 +103,58 @@ class ItemViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         if PREFILTER_TAGS:
-            return Item.objects.filter(tags__name__in=PREFILTER_TAGS).distinct()
-        return Item.objects.all()
+            qs = Item.objects.filter(tags__name__in=PREFILTER_TAGS).distinct()
+        else:
+            qs = Item.objects.all()
+
+        return qs.select_related('owner').prefetch_related(
+            'tags',
+            'link__media_urls',
+            'file_group__files'
+        )
+
+    @swagger_auto_schema(
+        manual_parameters=[
+            openapi.Parameter(
+                "tag_names",
+                openapi.IN_QUERY,
+                description="Comma-separated list of tag names to calculate neighbors correctly",
+                type=openapi.TYPE_STRING,
+            ),
+            openapi.Parameter(
+                "ordering",
+                openapi.IN_QUERY,
+                description="Ordering field (e.g. '-created_at') to determine neighbor sequence",
+                type=openapi.TYPE_STRING,
+            ),
+        ],
+        responses={
+            200: ItemDetailResponseSerializer()
+        }
+    )
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+
+        # filter_queryset automatically looks at request.query_params
+        queryset = self.filter_queryset(self.get_queryset())
+
+        # IDs for the neighbor calculation
+        ids = list(queryset.values_list("id", flat=True))
+
+        try:
+            idx = ids.index(instance.id)
+            prev_id = ids[idx - 1] if idx > 0 else None
+            next_id = ids[idx + 1] if idx < len(ids) - 1 else None
+        except ValueError:
+            prev_id = None
+            next_id = None
+
+        serializer = self.get_serializer(instance)
+        data = serializer.data
+        data['prev_id'] = prev_id
+        data['next_id'] = next_id
+
+        return Response(data)
 
     def perform_create(self, serializer):
         # normal users always get themselves as owner
@@ -178,6 +231,7 @@ class ItemViewSet(viewsets.ModelViewSet):
 
         return Response({"prev_id": prev_id, "next_id": next_id})
 
+
 class TagViewSet(viewsets.ModelViewSet):
     queryset = Tag.objects.all()
     serializer_class = TagSerializer
@@ -205,6 +259,7 @@ class TagViewSet(viewsets.ModelViewSet):
         # Order the results by the calculated count in descending order
         return queryset.order_by('-item_count', 'name')
 
+
 class LinkViewSet(viewsets.ModelViewSet):
     queryset = Link.objects.prefetch_related('media_urls').all()
     serializer_class = LinkSerializer
@@ -218,10 +273,12 @@ class LinkViewSet(viewsets.ModelViewSet):
 
         auto_tag_item_from_src(item, None, file_group)
 
+
 class MediaURLViewSet(viewsets.ModelViewSet):
     queryset = MediaURL.objects.all()
     serializer_class = MediaURLSerializer
     permission_classes = [IsAuthenticated]
+
 
 class FileGroupViewSet(viewsets.ModelViewSet):
     queryset = FileGroup.objects.all()
@@ -289,7 +346,7 @@ class FileGroupViewSet(viewsets.ModelViewSet):
             file_types = [t.strip() for t in raw_file_types[0].split(",")]
         else:
             file_types = raw_file_types
-        
+
         total = len(uploaded_files)
         created_files = []
 
@@ -338,6 +395,7 @@ class FileGroupViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED
         )
 
+
 class FileViewSet(viewsets.ModelViewSet):
     queryset = File.objects.all()
     serializer_class = FileSerializer
@@ -358,7 +416,8 @@ class FileViewSet(viewsets.ModelViewSet):
         """
         file_instance = self.get_object()
 
-        file_path = os.path.join(settings.GDRIVE_LOCAL_PATH, file_instance.file_name)
+        file_path = os.path.join(
+            settings.GDRIVE_LOCAL_PATH, file_instance.file_name)
 
         if not os.path.exists(file_path):
             # Fallback: If not on G: drive, you could trigger a download here
@@ -372,7 +431,8 @@ class FileViewSet(viewsets.ModelViewSet):
 
         # 3. Stream the file
         # 'as_attachment=False' allows browser/Angular to play video/show image directly
-        response = FileResponse(open(file_path, 'rb'), content_type=content_type)
+        response = FileResponse(open(file_path, 'rb'),
+                                content_type=content_type)
 
         # Optional: Force the filename in headers
         response['Content-Disposition'] = f'inline; filename="{smart_str(file_instance.file_name)}"'
