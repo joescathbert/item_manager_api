@@ -350,7 +350,7 @@ class FileGroupViewSet(viewsets.ModelViewSet):
         total = len(uploaded_files)
         created_files = []
 
-        file_type_count = {"RAW": 0, "ORG": 0}
+        file_type_count = {"RAW": 0, "ORG": 0, "BON": 0}
         for idx, f in enumerate(uploaded_files, start=1):
             # Generate serial-like filename
             _, file_ext = os.path.splitext(f.name)
