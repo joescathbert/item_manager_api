@@ -5,7 +5,7 @@ from rest_framework import viewsets, filters, status
 from rest_framework.utils.urls import replace_query_param
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend, FilterSet, filters as df_filters
 from drf_yasg.utils import swagger_auto_schema
@@ -13,7 +13,9 @@ from drf_yasg import openapi
 from django.conf import settings
 from django.db.models import Count
 from django.utils.encoding import smart_str
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, HttpResponse
+from django.shortcuts import redirect
+from django.urls import reverse
 from urllib.parse import urlparse, urlunparse
 from .models.item import Item
 from .models.tag import Tag
@@ -26,6 +28,7 @@ from .serializers import (
     FileGroupSerializer, FileSerializer, MediaURLSerializer, ItemDetailResponseSerializer
 )
 from utils.g_drive import upload_to_drive_oauth
+from utils.g_drive_authentication import create_oauth_flow, save_credentials
 from utils.tag_service import auto_tag_item_from_src
 
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
@@ -37,6 +40,33 @@ def force_port(url: str, port: int = 8000) -> str:
     parsed = urlparse(url)
     netloc = f"{parsed.hostname}:{port}"
     return urlunparse(parsed._replace(netloc=netloc))
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def gdrive_auth_url(request):
+    redirect_uri = request.build_absolute_uri(reverse('gdrive-oauth-callback'))
+    flow = create_oauth_flow(redirect_uri)
+    auth_url, _ = flow.authorization_url(
+        access_type='offline',
+        include_granted_scopes='true',
+        prompt='consent'
+    )
+    return redirect(auth_url)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def gdrive_oauth_callback(request):
+    redirect_uri = request.build_absolute_uri(reverse('gdrive-oauth-callback'))
+    flow = create_oauth_flow(redirect_uri)
+    flow.fetch_token(authorization_response=request.build_absolute_uri())
+    creds = flow.credentials
+    save_credentials(creds)
+    return HttpResponse(
+        '<html><body><h1>Google Drive connected</h1><p>You may close this window.</p>'
+        '<script>window.close();</script></body></html>'
+    )
 
 
 class ItemPagination(PageNumberPagination):
