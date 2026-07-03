@@ -4,3 +4,4 @@ REDGIFS_DOMAINS: list[str] = ["www.redgifs.com", "redgifs.com", "www.v3.redgifs.
 IMGUR_DOMAINS: list[str] = ["imgur.com"]
 REDDIT_MEDIA_DOMAINS: list[str] = ["v.redd.it"]
 TWITTER_MEDIA_DOMAINS: list[str] = ["video.twimg.com"]
+IMAGE_MEDIA_DOMAINS: list[str] = ['pbs.twimg.com', 'i.redd.it', 'i.ibb.co']

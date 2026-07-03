@@ -1,38 +1,54 @@
 import os
+from pathlib import Path
 import pickle
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 
-# 🔑 Path to the secrets file you downloaded from Google Cloud.
-CLIENT_SECRETS_FILE = "client_secrets.json"
-SCOPES = ["https://www.googleapis.com/auth/drive"] 
+if os.getenv("DJANGO_DEBUG", "True") == "True":
+    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+CLIENT_SECRETS_FILE = BASE_DIR / "client_secrets.json"
+TOKEN_FILE = BASE_DIR / "token.pickle"
+SCOPES = ["https://www.googleapis.com/auth/drive"]
+
+
+def load_credentials():
+    if TOKEN_FILE.exists():
+        with TOKEN_FILE.open("rb") as token:
+            return pickle.load(token)
+    return None
+
+
+def save_credentials(creds):
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with TOKEN_FILE.open("wb") as token:
+        pickle.dump(creds, token)
+
+
+def create_oauth_flow(redirect_uri: str):
+    return InstalledAppFlow.from_client_secrets_file(
+        str(CLIENT_SECRETS_FILE),
+        SCOPES,
+        redirect_uri=redirect_uri,
+    )
+
 
 def authenticate_user():
-    """Performs the OAuth flow to get user credentials."""
-    creds = None
+    creds = load_credentials()
 
-    # The file token.pickle stores the user's access and refresh tokens, 
-    # and is created automatically when the authorization flow completes.
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token:
-            creds = pickle.load(token)
+    if creds and creds.valid:
+        return creds
 
-    # If there are no (valid) credentials available, let the user log in.
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                CLIENT_SECRETS_FILE, SCOPES
-            )
-            # This line will open a browser window for you to log in
-            creds = flow.run_local_server(port=0)
+    if creds and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+        save_credentials(creds)
+        return creds
 
-        # Save the credentials for the next run
-        with open('token.pickle', 'wb') as token:
-            pickle.dump(creds, token)
+    raise RuntimeError(
+        "No valid Google Drive credentials found. Run the OAuth authorization flow first."
+    )
 
-    return creds
 
 if __name__ == "__main__":
-    authenticate_user()
+    print("This helper is intended for the web OAuth flow. Use the /api/gdrive/auth-url/ endpoint.")

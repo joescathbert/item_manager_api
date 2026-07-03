@@ -4,6 +4,9 @@ import subprocess
 import json
 from urllib.parse import urlparse
 from typing import Dict, Any
+from utils.domain_urls import IMAGE_MEDIA_DOMAINS
+
+COOKIE_FILE = "cookies.txt"
 
 def get_media_details(url: str) -> Dict[str, Any]:
     result = {"original_url": url, "media": []}
@@ -17,6 +20,7 @@ def get_media_details(url: str) -> Dict[str, Any]:
                 'quiet': True,
                 'skip_download': True,
                 # 'extract_flat': True, # Start flat for speed
+                'cookiefile': COOKIE_FILE,
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ext_data["info"] = ydl.extract_info(url, download=False)
@@ -37,14 +41,14 @@ def get_media_details(url: str) -> Dict[str, Any]:
         entries = ext_data["info"].get('entries', [ext_data["info"]])
         for entry in entries:
             # Basic check to see if this specific entry is a video
-            if entry.get('vcodec') != 'none' or 'formats' in entry:
+            if entry.get('vcodec', 'none') != 'none' or 'formats' in entry:
                 video_data = process_video_entry(entry)
                 if video_data:
                     result["media"].append(video_data)
 
     # 2. Image Extraction (gallery-dl) - Handles galleries and mixed media
     try:
-        cmd = ["gallery-dl", "-j", url]
+        cmd = ["gallery-dl", "-j", "--cookies", COOKIE_FILE, url]
         process = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
 
         if process.returncode == 0:
@@ -57,7 +61,7 @@ def get_media_details(url: str) -> Dict[str, Any]:
                     image_url_domain = parsed_image_url.netloc.lower()
 
                     # Ignore non-image links
-                    if image_url_domain not in ['pbs.twimg.com', 'i.redd.it']:
+                    if image_url_domain not in IMAGE_MEDIA_DOMAINS:
                         continue
 
                     # Ignore non-http links or profile pictures if they creep in
@@ -88,7 +92,12 @@ def process_video_entry(entry: Dict) -> Dict:
     """Extracts HD (best) and SD (worst) resolutions from a single entry."""
     formats = entry.get('formats', [])
     # Filter for mp4-compatible or mixed formats
-    video_formats = [f for f in formats if f.get('vcodec') != 'none']
+    video_formats = [
+        f for f in formats
+        if f.get('vcodec') != 'none'
+        and f.get('ext') == 'mp4'
+        and '.m3u8' not in (f.get('url') or '')
+    ]
 
     if video_formats:
         # Calculate the 'quality' based on the shortest dimension

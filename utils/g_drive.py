@@ -39,7 +39,7 @@ def upload_to_drive_oauth(django_file, file_name):
         body={"role": "reader", "type": "anyone"},
     ).execute()
 
-    print(f"Gdrive: Uploaded file ID: {file_id}")
+    print(f"Gdrive: Uploaded file name: {file_name}")
     print(f"Public URL: https://drive.google.com/file/d/{file_id}/view")
 
      # Return public URL
