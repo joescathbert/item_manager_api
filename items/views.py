@@ -11,7 +11,8 @@ from django_filters.rest_framework import DjangoFilterBackend, FilterSet, filter
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.conf import settings
-from django.db.models import Count
+from django.db.models import Count, Value, Q
+from django.db.models.functions import Substr, StrIndex
 from django.utils.encoding import smart_str
 from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import redirect
@@ -271,14 +272,14 @@ class TagViewSet(viewsets.ModelViewSet):
         queryset = Tag.objects.all()
 
         if PREFILTER_TAGS:
-            # Get the IDs of all Items that match the premature tags
-            premature_item_ids = Item.objects.filter(
+            # Get the IDs of all Items that match the prefilter tags
+            prefilter_item_ids = Item.objects.filter(
                 tags__name__in=PREFILTER_TAGS
             ).values_list('id', flat=True)
 
             # Filter the Tags to only those associated with those Items
             queryset = queryset.filter(
-                items__id__in=premature_item_ids
+                items__id__in=prefilter_item_ids
             ).distinct()
 
         # Annotate the queryset with the count of associated items
@@ -288,6 +289,157 @@ class TagViewSet(viewsets.ModelViewSet):
 
         # Order the results by the calculated count in descending order
         return queryset.order_by('-item_count', 'name')
+
+    @swagger_auto_schema(
+        method='get',
+        operation_description="Extracts and returns a unique list of categories from tags formatted as <category>-<value>.",
+        responses={
+            200: openapi.Response(
+                description="A list of unique category strings.",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Schema(type=openapi.TYPE_STRING, example="color")
+                )
+            )
+        }
+    )
+    @action(detail=False, methods=['get'], url_path='categories')
+    def get_categories(self, request):
+        """
+        Extracts and returns a list of unique categories 
+        from the tags matching the <category>-<value> format.
+        """
+        # 1. Reuse your existing filtered/annotated queryset
+        queryset = self.get_queryset().order_by()
+
+        # 2. Filter for tags that actually contain a hyphen to avoid errors
+        queryset = queryset.filter(name__contains='-')
+
+        # 3. Use Django DB functions to split the string at the first hyphen
+        # StrIndex finds the 1-based position of '-'. Substr grabs everything before it.
+        categories_queryset = queryset.annotate(
+            category=Substr('name', 1, StrIndex('name', Value('-')) - 1)
+        ).values_list('category', flat=True).distinct()
+
+        # 4. Convert the queryset to a clean list and return it
+        categories_list = sorted(list(categories_queryset))
+
+        return Response(categories_list)
+
+    @swagger_auto_schema(
+        method='get',
+        operation_description="Extracts and returns a unique list of values, item counts, and full names for a given category. Can be filtered by associated item tags.",
+        manual_parameters=[
+            openapi.Parameter(
+                'category',
+                openapi.IN_QUERY,
+                description="Category name for which values need to be fetched",
+                type=openapi.TYPE_STRING,
+                required=True
+            ),
+            openapi.Parameter(
+                'tag_names',
+                openapi.IN_QUERY,
+                description="Comma-separated list of tag names to filter items before counting values",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+        ],
+        responses={
+            200: openapi.Response(
+                description="A list of objects containing the value, item count, and full tag name.",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_ARRAY,
+                    items=openapi.Schema(
+                        type=openapi.TYPE_OBJECT,
+                        properties={
+                            'name': openapi.Schema(type=openapi.TYPE_STRING, example="color-red"),
+                            'value': openapi.Schema(type=openapi.TYPE_STRING, example="red"),
+                            'item_count': openapi.Schema(type=openapi.TYPE_INTEGER, example=15)
+                        }
+                    )
+                )
+            )
+        }
+    )
+    @action(detail=False, methods=['get'], url_path='category-values')
+    def get_category_values(self, request):
+        category = request.query_params.get('category')
+        if not category:
+            return Response({"error": "Category parameter is required."}, status=400)
+
+        # 1. Scope global prefilters safely up front
+        if PREFILTER_TAGS:
+            valid_items = Item.objects.filter(tags__name__in=PREFILTER_TAGS).distinct()
+        else:
+            valid_items = Item.objects.all()
+
+        tag_names_param = request.query_params.get('tag_names')
+        target_tag_names = []
+
+        if tag_names_param:
+            # Clean up input names
+            target_tag_names = [n.strip() for n in tag_names_param.split(",") if n.strip()]
+            total_target_tags = len(target_tag_names)
+
+            # Step A: Find items matching ALL requested tags using integer counts (Saves SSD)
+            # This generates ONE query with a HAVING clause, avoiding looping JOIN chains
+            matching_item_ids = list(
+                valid_items.filter(tags__name__in=target_tag_names)
+                .annotate(match_count=Count('tags'))
+                .filter(match_count=total_target_tags)
+                .values_list('id', flat=True)
+            )
+
+            # If no items match the intersection, abort early without hammering the database
+            if not matching_item_ids:
+                return Response([])
+
+            # Step B: Get relevant tags. Evaluate filtering against a static Python array of raw IDs.
+            queryset = Tag.objects.filter(
+                name__startswith=f"{category}-",
+                items__id__in=matching_item_ids
+            ).annotate(
+                item_count=Count('items', filter=Q(items__id__in=matching_item_ids))
+            ).values('name', 'item_count').distinct()
+
+        else:
+            # No user filters applied: Just fetch tags tied to global prefilters
+            if PREFILTER_TAGS:
+                # Force evaluate into memory so the database subquery isn't complex
+                prefilter_item_ids = list(valid_items.values_list('id', flat=True))
+                
+                if not prefilter_item_ids:
+                    return Response([])
+
+                queryset = Tag.objects.filter(
+                    name__startswith=f"{category}-",
+                    items__id__in=prefilter_item_ids
+                ).annotate(
+                    item_count=Count('items', filter=Q(items__id__in=prefilter_item_ids))
+                ).values('name', 'item_count').distinct()
+            else:
+                # Completely unbound fallback
+                queryset = Tag.objects.filter(
+                    name__startswith=f"{category}-"
+                ).annotate(
+                    item_count=Count('items')
+                ).values('name', 'item_count').distinct()
+
+        # 2. Process light data frame in memory 
+        category_values_list = []
+        prefix_len = len(category) + 1
+
+        for item in queryset:
+            if item["name"] not in target_tag_names:
+                category_values_list.append({
+                    "name": item['name'],
+                    "item_count": item['item_count'],
+                    "value": item['name'][prefix_len:]
+                })
+
+        category_values_list.sort(key=lambda x: (-x['item_count'], x['name']))
+        return Response(category_values_list)
 
 
 class LinkViewSet(viewsets.ModelViewSet):
@@ -359,8 +511,8 @@ class FileGroupViewSet(viewsets.ModelViewSet):
             return Response({"error": "Item not found"}, status=status.HTTP_404_NOT_FOUND)
 
         # Step 2: Validate item type
-        if item.type != "file_group":
-            return Response({"error": "Item type must be 'file_group'"}, status=status.HTTP_400_BAD_REQUEST)
+        # if item.type != "file_group":
+        #     return Response({"error": "Item type must be 'file_group'"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Step 3: Create FileGroup (or reuse if already exists)
         file_group, created = FileGroup.objects.get_or_create(
