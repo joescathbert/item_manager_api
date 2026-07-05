@@ -1,6 +1,9 @@
 import uuid
 import os
 import mimetypes
+from io import BytesIO
+import zipfile
+from django.http import StreamingHttpResponse
 from rest_framework import viewsets, filters, status
 from rest_framework.utils.urls import replace_query_param
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -30,6 +33,8 @@ from .serializers import (
 )
 from utils.g_drive import upload_to_drive_oauth
 from utils.g_drive_authentication import create_oauth_flow, save_credentials
+from utils.url_refiner import refine_url
+from utils.media_extractor import get_media_details
 from utils.tag_service import auto_tag_item_from_src
 
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
@@ -262,6 +267,89 @@ class ItemViewSet(viewsets.ModelViewSet):
 
         return Response({"prev_id": prev_id, "next_id": next_id})
 
+    @swagger_auto_schema(
+        method='get',
+        manual_parameters=[
+            openapi.Parameter(
+                'item_id',
+                openapi.IN_QUERY,
+                description="The ID of the Item whose files you want to zip and download",
+                type=openapi.TYPE_INTEGER,
+                required=True
+            ),
+        ],
+        responses={
+            200: openapi.Response(description="A zip file streaming containing all files in the item."),
+            400: "Item ID missing or invalid",
+            404: "Item or files not found"
+        }
+    )
+    @action(detail=False, methods=['get'], url_path='download-zip')
+    def download_zip(self, request):
+        """
+        Zips all files associated with a specific item_id passed via GET parameters
+        and returns them as a downloadable zip stream. Named inside archive by file_type.
+        """
+        # 1. Extract and validate item_id from query params
+        item_id = request.query_params.get('item_id')
+        if not item_id:
+            return Response({"error": "item_id parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Prefetch the file relations efficiently
+            item_instance = Item.objects.select_related(
+                'file_group').prefetch_related('file_group__files').get(id=item_id)
+        except Item.DoesNotExist:
+            return Response({"error": "Item not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # 2. Safely grab the file records
+        if not hasattr(item_instance, 'file_group') or not item_instance.file_group:
+            return Response({"error": "This item does not have any files attached."}, status=status.HTTP_404_NOT_FOUND)
+
+        files = item_instance.file_group.files.all()
+        if not files.exists():
+            return Response({"error": "No files found in the item's file group."}, status=status.HTTP_404_NOT_FOUND)
+
+        # 3. Initialize an in-memory byte buffer
+        byte_stream = BytesIO()
+
+        # 4. Pack files into the zip archive
+        with zipfile.ZipFile(byte_stream, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for file_instance in files:
+                # Reconstruct path using the same logic as serve_file
+                file_path = os.path.join(
+                    settings.GDRIVE_LOCAL_PATH, file_instance.file_name)
+
+                if os.path.exists(file_path):
+                    # Extract original extension (e.g., .mp4, .png, .jpg)
+                    _, file_ext = os.path.splitext(file_instance.file_name)
+
+                    # Target name defaults to fallback if file_type string is missing
+                    if file_instance.file_type:
+                        # Clean up any unsafe characters in file_type just in case
+                        safe_type_name = "".join([c if c.isalnum() or c in (
+                            '_', '-') else '_' for c in file_instance.file_type])
+                        archive_name = f"{safe_type_name}{file_ext}"
+                    else:
+                        archive_name = file_instance.file_name
+
+                    # Use arcname to rewrite the file name inside the zip file structure
+                    zip_file.write(file_path, arcname=archive_name)
+                else:
+                    continue
+
+        # 5. Reset the buffer's read pointer
+        byte_stream.seek(0)
+
+        # 6. Build the streaming file response
+        response = StreamingHttpResponse(
+            byte_stream, content_type='application/zip')
+
+        # Format a clean filename using the item ID
+        response['Content-Disposition'] = f'attachment; filename="{item_id}_files.zip"'
+
+        return response
+
 
 class TagViewSet(viewsets.ModelViewSet):
     queryset = Tag.objects.all()
@@ -298,7 +386,8 @@ class TagViewSet(viewsets.ModelViewSet):
                 description="A list of unique category strings.",
                 schema=openapi.Schema(
                     type=openapi.TYPE_ARRAY,
-                    items=openapi.Schema(type=openapi.TYPE_STRING, example="color")
+                    items=openapi.Schema(
+                        type=openapi.TYPE_STRING, example="color")
                 )
             )
         }
@@ -370,7 +459,8 @@ class TagViewSet(viewsets.ModelViewSet):
 
         # 1. Scope global prefilters safely up front
         if PREFILTER_TAGS:
-            valid_items = Item.objects.filter(tags__name__in=PREFILTER_TAGS).distinct()
+            valid_items = Item.objects.filter(
+                tags__name__in=PREFILTER_TAGS).distinct()
         else:
             valid_items = Item.objects.all()
 
@@ -379,7 +469,8 @@ class TagViewSet(viewsets.ModelViewSet):
 
         if tag_names_param:
             # Clean up input names
-            target_tag_names = [n.strip() for n in tag_names_param.split(",") if n.strip()]
+            target_tag_names = [n.strip()
+                                for n in tag_names_param.split(",") if n.strip()]
             total_target_tags = len(target_tag_names)
 
             # Step A: Find items matching ALL requested tags using integer counts (Saves SSD)
@@ -400,15 +491,17 @@ class TagViewSet(viewsets.ModelViewSet):
                 name__startswith=f"{category}-",
                 items__id__in=matching_item_ids
             ).annotate(
-                item_count=Count('items', filter=Q(items__id__in=matching_item_ids))
+                item_count=Count('items', filter=Q(
+                    items__id__in=matching_item_ids))
             ).values('name', 'item_count').distinct()
 
         else:
             # No user filters applied: Just fetch tags tied to global prefilters
             if PREFILTER_TAGS:
                 # Force evaluate into memory so the database subquery isn't complex
-                prefilter_item_ids = list(valid_items.values_list('id', flat=True))
-                
+                prefilter_item_ids = list(
+                    valid_items.values_list('id', flat=True))
+
                 if not prefilter_item_ids:
                     return Response([])
 
@@ -416,7 +509,8 @@ class TagViewSet(viewsets.ModelViewSet):
                     name__startswith=f"{category}-",
                     items__id__in=prefilter_item_ids
                 ).annotate(
-                    item_count=Count('items', filter=Q(items__id__in=prefilter_item_ids))
+                    item_count=Count('items', filter=Q(
+                        items__id__in=prefilter_item_ids))
                 ).values('name', 'item_count').distinct()
             else:
                 # Completely unbound fallback
@@ -426,7 +520,7 @@ class TagViewSet(viewsets.ModelViewSet):
                     item_count=Count('items')
                 ).values('name', 'item_count').distinct()
 
-        # 2. Process light data frame in memory 
+        # 2. Process light data frame in memory
         category_values_list = []
         prefix_len = len(category) + 1
 
@@ -438,7 +532,7 @@ class TagViewSet(viewsets.ModelViewSet):
                     "value": item['name'][prefix_len:]
                 })
 
-        category_values_list.sort(key=lambda x: (-x['item_count'], x['name']))
+        category_values_list.sort(key=lambda x: (x['name'], -x['item_count']))
         return Response(category_values_list)
 
 
@@ -454,6 +548,53 @@ class LinkViewSet(viewsets.ModelViewSet):
         instance.delete()
 
         auto_tag_item_from_src(item, None, file_group)
+
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['url'],
+            properties={
+                'url': openapi.Schema(type=openapi.TYPE_STRING, description="The video or gallery URL to parse"),
+            },
+        ),
+        responses={
+            200: openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                description="Successfully extracted media details using existing engine rules",
+            ),
+            400: "Invalid input or extraction failed"
+        }
+    )
+    @action(detail=False, methods=['post'], url_path='extract-media')
+    def extract_media(self, request):
+        """
+        Accepts a URL, refines it, and uses get_media_details to return 
+        the extracted media URLs.
+        """
+        url = request.data.get('url')
+        if not url:
+            return Response({"error": "URL parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # 1. Standardize and clean the url using your existing function
+            refined_url_info = refine_url(url)
+            refined_url = refined_url_info.get(
+                'url') if refined_url_info else url
+
+            if not refined_url:
+                return Response({"error": "Failed to resolve or refine the provided URL."}, status=status.HTTP_400_BAD_REQUEST)
+
+            # 2. Extract media metadata and direct links using your existing parser engine
+            details = get_media_details(refined_url)
+
+            # 3. Return the payload directly back to your frontend/client
+            return Response(details, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {"error": f"Media extraction failed: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
 
 class MediaURLViewSet(viewsets.ModelViewSet):

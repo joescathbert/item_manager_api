@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 from typing import Dict, Any
 from utils.domain_urls import IMAGE_MEDIA_DOMAINS
 
-COOKIE_FILE = "cookies.txt"
+COOKIE_FILE = "reddit_cookies.txt"
 
 def get_media_details(url: str) -> Dict[str, Any]:
     result = {"original_url": url, "media": []}
@@ -42,7 +42,7 @@ def get_media_details(url: str) -> Dict[str, Any]:
         for entry in entries:
             # Basic check to see if this specific entry is a video
             if entry.get('vcodec', 'none') != 'none' or 'formats' in entry:
-                video_data = process_video_entry(entry)
+                video_data = _process_video_entry(entry)
                 if video_data:
                     result["media"].append(video_data)
 
@@ -88,7 +88,7 @@ def get_media_details(url: str) -> Dict[str, Any]:
 
     return result
 
-def process_video_entry(entry: Dict) -> Dict:
+def _process_video_entry(entry: Dict) -> Dict:
     """Extracts HD (best) and SD (worst) resolutions from a single entry."""
     formats = entry.get('formats', [])
     # Filter for mp4-compatible or mixed formats
@@ -123,3 +123,4 @@ def process_video_entry(entry: Dict) -> Dict:
         }
 
     return None
+

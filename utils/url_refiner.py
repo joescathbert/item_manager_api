@@ -2,7 +2,7 @@ from typing import List
 from urllib.parse import urlparse
 from utils.domain_urls import REDDIT_DOMAINS, TWITTER_DOMAINS
 
-def refine_twitter_url(raw_url: str) -> str:
+def _refine_twitter_url(raw_url: str) -> str:
     """
     Normalize Twitter/X URLs to https://twitter.com/<username>/status/<id>.
     Raises ValueError if format is invalid.
@@ -23,7 +23,7 @@ def refine_twitter_url(raw_url: str) -> str:
 
     return {'url': twitter_url, 'post_host': 'user', 'post_host_name': post_host_name, 'url_site_name': 'twitter'}
 
-def refine_reddit_url(raw_url: str) -> str:
+def _refine_reddit_url(raw_url: str) -> str:
     """
     Normalize Reddit URLs to https://www.reddit.com/r/<subreddit>/comments/<post_id>.
     Raises ValueError if format is invalid.
@@ -55,8 +55,8 @@ def refine_url(raw_url: str) -> str:
     domain = parsed.netloc.lower()
 
     if domain in TWITTER_DOMAINS:
-        return refine_twitter_url(raw_url)
+        return _refine_twitter_url(raw_url)
     elif domain in REDDIT_DOMAINS:
-        return refine_reddit_url(raw_url)
+        return _refine_reddit_url(raw_url)
     else:
         raise ValueError("Unsupported domain. Only Twitter/X and Reddit are allowed.")
