@@ -1,16 +1,21 @@
 from typing import List, Optional
-from rest_framework import serializers
 from urllib.parse import urlparse
+
+from django.conf import settings
+from django.urls import reverse
+from rest_framework import serializers
+
+from utils.domain_urls import REDDIT_DOMAINS, TWITTER_DOMAINS
+from utils.media_extractor import get_media_details
+from utils.tag_service import auto_tag_item_from_src
+from utils.url_refiner import refine_url
+
+from .models.file import File
+from .models.file_group import FileGroup
 from .models.item import Item
-from .models.tag import Tag
 from .models.link import Link
 from .models.media_url import MediaURL
-from .models.file_group import FileGroup
-from .models.file import File
-from utils.url_refiner import refine_url
-from utils.media_extractor import get_media_details
-from utils.domain_urls import REDDIT_DOMAINS, TWITTER_DOMAINS
-from utils.tag_service import auto_tag_item_from_src
+from .models.tag import Tag
 
 # --- 1. Basic Serializers ---
 
@@ -211,6 +216,7 @@ class ItemSerializer(serializers.ModelSerializer):
                 instance, link.url if link else None, file_group)
         return instance
 
+
 class ItemDetailResponseSerializer(ItemSerializer):
     prev_id = serializers.IntegerField(allow_null=True, read_only=True)
     next_id = serializers.IntegerField(allow_null=True, read_only=True)
@@ -218,3 +224,63 @@ class ItemDetailResponseSerializer(ItemSerializer):
     class Meta(ItemSerializer.Meta):
         # This keeps all your Item fields and appends the new ones
         fields = list(ItemSerializer.Meta.fields) + ['prev_id', 'next_id']
+
+
+class ItemFeedResponseSerializer(serializers.ModelSerializer):
+    mediaList = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Item
+        fields = ["id", "mediaList"]
+
+    def get_mediaList(self, obj: Item) -> List[dict]:
+        combined_media = []
+        request = self.context.get("request")
+
+        # 1. Process local synced files from the FileGroup
+        fg = obj.file_group if hasattr(obj, "file_group") else None
+        if fg:
+            for file_instance in fg.files.all():
+                name_lower = file_instance.file_name.lower()
+                is_video = any(name_lower.endswith(ext)
+                               for ext in [".mp4", ".mkv", ".mov", ".webm"])
+                media_type = "video" if is_video else "image"
+
+                serve_url = ""
+                if request:
+                    relative_url = reverse(
+                        "file-serve-file", kwargs={"pk": file_instance.id})
+                    serve_url = request.build_absolute_uri(relative_url)
+                    if hasattr(settings, "DJANGO_PORT"):
+                        from .views import force_port
+                        serve_url = force_port(serve_url, settings.DJANGO_PORT)
+                else:
+                    serve_url = f"/api/files/{file_instance.id}/serve/"
+
+                combined_media.append({
+                    "id": f"file-{file_instance.id}",
+                    "type": media_type,
+                    "url": serve_url
+                })
+
+        # 2. Process external parsed URLs from the Link
+        link = obj.link if hasattr(obj, "link") else None
+        if link:
+            for media_url_instance in link.media_urls.all():
+                m_type = getattr(media_url_instance, "media_type", "video")
+                if not m_type:
+                    url_lower = media_url_instance.url.lower()
+                    is_video = any(url_lower.endswith(ext)
+                                   for ext in [".mp4", ".mkv", ".webm"])
+                    m_type = "video" if is_video else "image"
+
+                # Use HD version if available, otherwise fallback to standard
+                target_url = media_url_instance.hd_url or media_url_instance.url
+
+                combined_media.append({
+                    "id": f"url-{media_url_instance.id}",
+                    "type": m_type,
+                    "url": target_url
+                })
+
+        return combined_media

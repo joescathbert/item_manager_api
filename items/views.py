@@ -1,41 +1,45 @@
-import uuid
-import os
 import mimetypes
-from io import BytesIO
+import os
+import uuid
 import zipfile
-from django.http import StreamingHttpResponse
-from rest_framework import viewsets, filters, status
-from rest_framework.utils.urls import replace_query_param
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.pagination import PageNumberPagination
-from rest_framework.decorators import action, api_view, permission_classes
-from rest_framework.response import Response
-from django_filters.rest_framework import DjangoFilterBackend, FilterSet, filters as df_filters
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
+from io import BytesIO
+from urllib.parse import urlparse, urlunparse
+
 from django.conf import settings
-from django.db.models import Count, Value, Q
-from django.db.models.functions import Substr, StrIndex
-from django.utils.encoding import smart_str
-from django.http import FileResponse, Http404, HttpResponse
+from django.db.models import Count, Q, Value
+from django.db.models.functions import StrIndex, Substr
+from django.http import (FileResponse, Http404, HttpResponse,
+                         StreamingHttpResponse)
 from django.shortcuts import redirect
 from django.urls import reverse
-from urllib.parse import urlparse, urlunparse
-from .models.item import Item
-from .models.tag import Tag
-from .models.link import Link
-from .models.media_url import MediaURL
-from .models.file_group import FileGroup
-from .models.file import File
-from .serializers import (
-    ItemSerializer, TagSerializer, LinkSerializer,
-    FileGroupSerializer, FileSerializer, MediaURLSerializer, ItemDetailResponseSerializer
-)
+from django.utils.encoding import smart_str
+from django_filters.rest_framework import DjangoFilterBackend, FilterSet
+from django_filters.rest_framework import filters as df_filters
+from drf_yasg import openapi
+from drf_yasg.utils import swagger_auto_schema
+from rest_framework import filters, status, viewsets
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.utils.urls import replace_query_param
+
 from utils.g_drive import upload_to_drive_oauth
 from utils.g_drive_authentication import create_oauth_flow, save_credentials
-from utils.url_refiner import refine_url
 from utils.media_extractor import get_media_details
 from utils.tag_service import auto_tag_item_from_src
+from utils.url_refiner import refine_url
+
+from .models.file import File
+from .models.file_group import FileGroup
+from .models.item import Item
+from .models.link import Link
+from .models.media_url import MediaURL
+from .models.tag import Tag
+from .serializers import (FileGroupSerializer, FileSerializer,
+                          ItemDetailResponseSerializer,
+                          ItemFeedResponseSerializer, ItemSerializer,
+                          LinkSerializer, MediaURLSerializer, TagSerializer)
 
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 
@@ -349,6 +353,29 @@ class ItemViewSet(viewsets.ModelViewSet):
         response['Content-Disposition'] = f'attachment; filename="{item_id}_files.zip"'
 
         return response
+
+    @swagger_auto_schema(
+        responses={200: ItemFeedResponseSerializer(many=True)}
+    )
+    @action(detail=False, methods=["get"], url_path="feed", permission_classes=[IsAuthenticated])
+    def item_feed(self, request):
+        """
+        Returns an optimized page list tailored specifically for vertical short feeds,
+        mapping combined nested files and links directly into a unified mediaList array.
+        """
+        # Re-use your optimized prefetches automatically
+        queryset = self.filter_queryset(self.get_queryset())
+
+        # Pass data through your current custom ItemPagination class engine
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = ItemFeedResponseSerializer(
+                page, many=True, context={'request': request})
+            return self.get_paginated_response(serializer.data)
+
+        serializer = ItemFeedResponseSerializer(
+            queryset, many=True, context={'request': request})
+        return Response(serializer.data)
 
 
 class TagViewSet(viewsets.ModelViewSet):
