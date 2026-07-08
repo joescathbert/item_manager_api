@@ -43,4 +43,4 @@ client_secrets.json
 token.pickle
 
 # Cookie files
-cookies.txt
+*cookies.txt
